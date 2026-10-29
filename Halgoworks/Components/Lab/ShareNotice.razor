@@ -1,0 +1,13 @@
+@if (Problem is not null && !_dismissed)
+{
+    <div class="notice" role="status">
+        <span>Couldn't open the shared example: @Problem. Showing the default example instead.</span>
+        <button type="button" class="btn" @onclick="() => _dismissed = true">Dismiss</button>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Problem { get; set; }
+
+    private bool _dismissed;
+}

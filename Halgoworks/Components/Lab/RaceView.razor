@@ -1,0 +1,168 @@
+@typeparam TStep where TStep : Halgoworks.Core.Step
+@implements IDisposable
+
+<div class="race-picker" role="group" aria-label="Racers">
+    <span class="race-picker-label">Racers <small class="muted">pick 2 or 3</small></span>
+    @foreach (var entry in Entries)
+    {
+        var on = _selected.Contains(entry.Key);
+        var locked = on ? _selected.Count <= 2 : _selected.Count >= 3;
+        <button type="button" class="chip-toggle @(on ? "on" : null)" aria-pressed="@(on ? "true" : "false")" disabled="@locked"
+                title="@(locked ? on ? "A race needs at least two racers" : "Three racers at most: remove one first" : null)" @onclick="() => Toggle(entry.Key)">
+            @if (on)
+            {
+                <span class="race-dot" style="background: @Palette.Slot(_selected.IndexOf(entry.Key))"></span>
+            }
+            @entry.Name
+        </button>
+    }
+</div>
+
+<div class="race-body" style="--lanes: @_lanes.Count">
+    @for (var i = 0; i < _lanes.Count; i++)
+    {
+        var lane = _lanes[i];
+        var index = Math.Min(_player.Index, lane.Steps.Count - 1);
+        var step = lane.Steps[index];
+        var done = index >= lane.Steps.Count - 1;
+        var score = lane.Score(step);
+        var best = AllDone && IsBest(lane);
+        <section class="race-lane @(done ? "done" : null)" aria-label="@lane.Name">
+            <header class="race-head">
+                <div class="race-name"><span class="race-dot" style="background: @Palette.Slot(i)"></span>@lane.Name</div>
+                <div class="race-score">
+                    <span>@ScoreLabel</span>
+                    <strong class="num">@(score is { } s ? Format(s) : "–")</strong>
+                </div>
+            </header>
+            <div class="race-status">
+                <div class="race-track" aria-hidden="true"><span style="width: @Palette.F(100.0 * (index + 1) / lane.Steps.Count, "0.#")%; background: @Palette.Slot(i)"></span></div>
+                @if (done)
+                {
+                    <span class="race-badge">@Ordinal(Place(lane)) to finish · @lane.Steps.Count steps</span>
+                    @if (best)
+                    {
+                        <span class="race-badge best">Best result</span>
+                    }
+                }
+                else
+                {
+                    <span class="muted num">Step @(index + 1) of @lane.Steps.Count</span>
+                }
+            </div>
+            <div class="race-viz">@Lane(new RaceFrame<TStep>(lane, step, index, done))</div>
+            <div class="race-text">
+                <strong class="race-title">@step.Title</strong>
+                <p>@Rich.Render(step.Text)</p>
+            </div>
+        </section>
+    }
+</div>
+
+<p class="race-summary" aria-live="polite">@Summary()</p>
+<PlaybackBar Player="_player" />
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<RaceEntry> Entries { get; set; } = [];
+
+    /// <summary>Builds a racer's trace on demand; results are cached until <see cref="Version"/> changes.</summary>
+    [Parameter, EditorRequired] public Func<string, RaceLane<TStep>> Build { get; set; } = default!;
+
+    /// <summary>Bump when the instance changes.</summary>
+    [Parameter] public int Version { get; set; }
+
+    [Parameter, EditorRequired] public RenderFragment<RaceFrame<TStep>> Lane { get; set; } = default!;
+    [Parameter] public string ScoreLabel { get; set; } = "Score";
+    [Parameter] public Func<double, string> Format { get; set; } = v => Palette.F(v);
+    [Parameter] public bool LowerIsBetter { get; set; }
+
+    /// <summary>Keys of the racers, for share links. Defaults to the first three entries.</summary>
+    [Parameter] public IReadOnlyList<string>? Selected { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<string>> SelectedChanged { get; set; }
+
+    private readonly Player _player = new();
+    private readonly Dictionary<string, RaceLane<TStep>> _cache = [];
+    private List<string> _selected = [];
+    private List<RaceLane<TStep>> _lanes = [];
+    private int _builtVersion = -1;
+    private string _builtKeys = "";
+
+    protected override void OnInitialized() => _player.Changed += OnPlayerChanged;
+
+    private void OnPlayerChanged() => InvokeAsync(StateHasChanged);
+
+    protected override void OnParametersSet()
+    {
+        if (_selected.Count == 0)
+        {
+            var known = (Selected ?? []).Where(k => Entries.Any(e => e.Key == k)).Distinct().Take(3).ToList();
+            _selected = known.Count >= 2 ? known : Entries.Take(3).Select(e => e.Key).ToList();
+        }
+
+        Refresh();
+    }
+
+    private void Refresh()
+    {
+        var keys = string.Join(",", _selected);
+        if (_builtVersion == Version && _builtKeys == keys) return;
+        if (_builtVersion != Version) _cache.Clear();
+        _builtVersion = Version;
+        _builtKeys = keys;
+        _lanes = _selected.Select(k => _cache.TryGetValue(k, out var lane) ? lane : _cache[k] = Build(k)).ToList();
+        _player.Load(_lanes.Count == 0 ? 0 : _lanes.Max(l => l.Steps.Count));
+    }
+
+    private async Task Toggle(string key)
+    {
+        if (_selected.Contains(key))
+        {
+            if (_selected.Count <= 2) return;
+            _selected.Remove(key);
+        }
+        else
+        {
+            if (_selected.Count >= 3) return;
+            // Keep the racers in the order the entries are listed, so colors stay stable.
+            _selected = Entries.Select(e => e.Key).Where(k => k == key || _selected.Contains(k)).ToList();
+        }
+
+        Refresh();
+        await SelectedChanged.InvokeAsync(_selected.ToList());
+    }
+
+    private bool AllDone => _lanes.Count > 0 && _player.Index >= _lanes.Max(l => l.Steps.Count) - 1;
+
+    private double? Final(RaceLane<TStep> lane) => lane.Score(lane.Steps[^1]);
+
+    private bool IsBest(RaceLane<TStep> lane)
+    {
+        var scores = _lanes.Select(Final).OfType<double>().ToList();
+        if (scores.Count == 0 || Final(lane) is not { } mine) return false;
+        var target = LowerIsBetter ? scores.Min() : scores.Max();
+        return Math.Abs(mine - target) < 1e-6;
+    }
+
+    private int Place(RaceLane<TStep> lane) => 1 + _lanes.Count(l => l.Steps.Count < lane.Steps.Count);
+
+    private static string Ordinal(int n) => n switch { 1 => "1st", 2 => "2nd", 3 => "3rd", _ => $"{n}th" };
+
+    private string Summary()
+    {
+        if (_lanes.Count == 0) return "";
+        if (_player.Index == 0 && !_player.Playing) return "Press play to start the race. Every racer advances one step per tick; a step is one decision its narration explains.";
+        if (!AllDone) return $"{_lanes.Count(l => _player.Index >= l.Steps.Count - 1)} of {_lanes.Count} finished.";
+        var fastest = _lanes.MinBy(l => l.Steps.Count)!;
+        var best = _lanes.Where(IsBest).Select(l => l.Name).ToList();
+        var result = best.Count == _lanes.Count
+            ? "They all reach the same result"
+            : $"Best result: {string.Join(" and ", best)}, {Format(Final(_lanes.First(IsBest)) ?? 0)}";
+        return $"Fewest steps: {fastest.Name} ({fastest.Steps.Count}). {result}. Fewer steps doesn't mean a better answer.";
+    }
+
+    public void Dispose()
+    {
+        _player.Changed -= OnPlayerChanged;
+        _player.Dispose();
+    }
+}

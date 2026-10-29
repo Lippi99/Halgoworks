@@ -1,0 +1,94 @@
+@using Halgoworks.Core.BinPacking
+
+<ScaleView Jobs="_jobs" Version="_version" Summary="@($"{_instance.Items.Count} items, bins of {_instance.Capacity}")" ValueLabel="Bins used"
+           LowerIsBetter="true" Format="@(v => Palette.F(v))" Refs="_refs">
+    <Legend>
+        <li><span class="swatch" style="background: @Palette.SizeClass[2]"></span>Over half a bin</li>
+        <li><span class="swatch" style="background: @Palette.SizeClass[1]"></span>A third to a half</li>
+        <li><span class="swatch" style="background: @Palette.SizeClass[0]"></span>Under a third</li>
+    </Legend>
+    <Controls>
+        <label class="field">
+            <span>Items <output>@_size</output></span>
+            <input type="range" min="20" max="300" step="20" value="@_size" style="--pct: @Pct()" @onchange="SetSize" />
+        </label>
+        <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New items</button>
+        <p class="muted small">
+            Sizes 1–80 in bins of 100, medium sizes most common. The lower bound is the total size divided by the bin size, rounded up:
+            no packing can use fewer bins. The exact search gives up after 200,000 nodes, which happens quickly at this size.
+        </p>
+    </Controls>
+    <Visual>
+        <BinsStrip Instance="_instance" Bins="(IReadOnlyList<List<int>>)context.Result.Solution!" />
+    </Visual>
+</ScaleView>
+
+@code {
+    /// <summary>"size.seed", for share links.</summary>
+    [Parameter] public string? State { get; set; }
+    [Parameter] public EventCallback<string> StateChanged { get; set; }
+
+    private const int Capacity = 100;
+    private int _size = 120;
+    private int _seed = 1;
+    private int _version;
+    private bool _loaded;
+    private BinPackingInstance _instance = default!;
+    private IReadOnlyList<ScaleJob> _jobs = [];
+    private IReadOnlyList<RefLine> _refs = [];
+
+    protected override void OnParametersSet()
+    {
+        if (_loaded) return;
+        _loaded = true;
+        if (State?.Split('.') is [var size, var seed] && int.TryParse(size, out var n) && int.TryParse(seed, out var s))
+        {
+            _size = Math.Clamp(n / 20 * 20, 20, 300);
+            _seed = Math.Clamp(s, 1, 1_000_000);
+        }
+
+        Build();
+    }
+
+    private void Build()
+    {
+        var instance = _instance = BinPackingInstances.Random(_size, Capacity, _seed);
+        _refs = [new RefLine("Lower bound", instance.LowerBound)];
+        _jobs =
+        [
+            .. BinPackingSolver.Rules.Select(rule => new ScaleJob(BinPackingSolver.ShortName(rule), () =>
+            {
+                var bins = BinPackingSolver.Solve(instance, rule);
+                return new ScaleResult(bins.Count, bins, $"{Num.Pct((double)instance.TotalSize / (bins.Count * Capacity))} full");
+            })),
+            new ScaleJob("Exact search", () =>
+            {
+                // When the search gives up, show its best effort: first fit decreasing, which it starts from.
+                var bins = BinPackingSolver.OptimalPacking(instance);
+                return bins is null
+                    ? new ScaleResult(BinPackingSolver.Solve(instance, BinRule.FirstFitDecreasing).Count, BinPackingSolver.Solve(instance, BinRule.FirstFitDecreasing), "gave up; no better packing found in time")
+                    : new ScaleResult(bins.Count, bins, "proven optimal");
+            }),
+        ];
+        _version++;
+    }
+
+    private string Pct() => Palette.F(100.0 * (_size - 20) / 280, "0.#") + "%";
+
+    private Task Save() => StateChanged.InvokeAsync($"{_size}.{_seed}");
+
+    private Task SetSize(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var size)) return Task.CompletedTask;
+        _size = size;
+        Build();
+        return Save();
+    }
+
+    private Task Reroll()
+    {
+        _seed = Random.Shared.Next(1, 100_000);
+        Build();
+        return Save();
+    }
+}

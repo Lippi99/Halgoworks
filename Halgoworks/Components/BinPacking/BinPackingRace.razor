@@ -1,0 +1,28 @@
+@using Halgoworks.Core.BinPacking
+
+<RaceView TStep="BinPackingStep" Entries="Entries" Build="Build" Version="Version" ScoreLabel="Bins open" LowerIsBetter="true"
+          Format="@(v => Palette.F(v))" Selected="Selected" SelectedChanged="SelectedChanged">
+    <Lane>
+        <BinsView Instance="Instance" Step="context.Step" MaxSlots="_slots.GetValueOrDefault(context.Lane.Key)" />
+    </Lane>
+</RaceView>
+
+@code {
+    [Parameter, EditorRequired] public BinPackingInstance Instance { get; set; } = default!;
+    [Parameter] public int Version { get; set; }
+    [Parameter] public IReadOnlyList<string>? Selected { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<string>> SelectedChanged { get; set; }
+
+    private static readonly IReadOnlyList<RaceEntry> Entries =
+        BinPackingSolver.Rules.Select(r => new RaceEntry(r.ToString(), BinPackingSolver.ShortName(r))).ToList();
+
+    private readonly Dictionary<string, int> _slots = [];
+
+    private RaceLane<BinPackingStep> Build(string key)
+    {
+        var rule = Enum.Parse<BinRule>(key);
+        var steps = BinPackingSolver.Trace(Instance, rule);
+        _slots[key] = steps.Max(s => s.Bins.Count + 1);
+        return new RaceLane<BinPackingStep>(key, BinPackingSolver.ShortName(rule), steps, s => s.Bins.Count);
+    }
+}

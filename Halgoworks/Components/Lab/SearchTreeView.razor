@@ -1,0 +1,117 @@
+@* A branch-and-bound tree that grows step by step. Positions come from the finished tree, so nodes never move. *@
+
+<div class="scroll-x">
+    <svg class="viz" viewBox="0 0 @_width @_height" style="width: @(Palette.F(_width, "0"))px; max-width: none" role="img"
+         aria-label="@($"Search tree with {Tree.Count} nodes so far")">
+        @foreach (var node in Tree)
+        {
+            if (node.Parent < 0 || !_pos.TryGetValue(node.Id, out var p) || !_pos.TryGetValue(node.Parent, out var q)) continue;
+            var first = _firstChild.Contains(node.Id);
+            <line x1="@F(q.X)" y1="@F(q.Y)" x2="@F(p.X)" y2="@F(p.Y)" stroke="@(first ? Palette.Series[0] : Palette.Text3)"
+                  stroke-width="@(first ? 2 : 1.5)" stroke-dasharray="@(first ? null : "4 3")" opacity="@(Faded(node) ? "0.45" : "1")" />
+        }
+
+        @if (BestNode is { } bestId && _pos.ContainsKey(bestId))
+        {
+            <polyline points="@BestPath(bestId)" fill="none" stroke="@Palette.GoodText" stroke-width="3" stroke-linejoin="round" opacity="0.85" />
+        }
+
+        @foreach (var node in Tree)
+        {
+            if (!_pos.TryGetValue(node.Id, out var p)) continue;
+            var best = node.Id == BestNode;
+            var (fill, stroke, dash, ink) = Style(node, best);
+            <g opacity="@(Faded(node) ? "0.5" : "1")">
+                @if (node.Id == FocusNode)
+                {
+                    <circle cx="@F(p.X)" cy="@F(p.Y)" r="@(R + 5)" fill="none" stroke="@Palette.Signal" stroke-width="2.5" class="glow" />
+                }
+                <circle cx="@F(p.X)" cy="@F(p.Y)" r="@R" fill="@fill" stroke="@stroke" stroke-width="1.6" stroke-dasharray="@dash">
+                    <title>@($"Node #{node.Id + 1}: {node.Branch}. {node.Detail}")</title>
+                </circle>
+                <text x="@F(p.X)" y="@F(p.Y)" text-anchor="middle" dominant-baseline="central" font-size="10.5" font-weight="700" fill="@ink" pointer-events="none">@Label(node)</text>
+                @if (best)
+                {
+                    <g><text x="@F(p.X)" y="@F(p.Y + R + 13)" text-anchor="middle" font-size="11" font-weight="700" fill="@Palette.GoodText">best</text></g>
+                }
+            </g>
+        }
+    </svg>
+</div>
+
+@code {
+    /// <summary>The nodes revealed so far.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<SearchNode> Tree { get; set; } = [];
+
+    /// <summary>The finished tree, used only for layout so positions stay fixed while the search plays.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<SearchNode> Layout { get; set; } = [];
+
+    [Parameter] public int? FocusNode { get; set; }
+    [Parameter] public int? BestNode { get; set; }
+
+    /// <summary>Text inside a node; defaults to its value.</summary>
+    [Parameter] public Func<SearchNode, string>? NodeLabel { get; set; }
+
+    private const int R = 12;
+    private const double Dx = 32;
+    private const double Dy = 56;
+    private readonly Dictionary<int, (double X, double Y)> _pos = [];
+    private readonly HashSet<int> _firstChild = [];
+    private IReadOnlyList<SearchNode>? _laidOut;
+    private double _width = 100;
+    private double _height = 100;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_laidOut, Layout)) return;
+        _laidOut = Layout;
+        _pos.Clear();
+        _firstChild.Clear();
+        var children = Layout.ToLookup(n => n.Parent);
+        foreach (var group in children.Where(g => g.Key >= 0))
+            _firstChild.Add(group.OrderBy(n => n.Id).First().Id);
+
+        // Leaves take consecutive columns left to right; a parent sits over the middle of its children.
+        var nextLeaf = 0;
+        double Place(SearchNode node)
+        {
+            var kids = children[node.Id].OrderBy(n => n.Id).ToList();
+            var x = kids.Count == 0 ? nextLeaf++ : kids.Select(Place).Average();
+            _pos[node.Id] = (24 + x * Dx, 22 + node.Depth * Dy);
+            return x;
+        }
+
+        foreach (var root in children[-1]) Place(root);
+        _width = Math.Max(1, nextLeaf) * Dx + 24;
+        _height = (Layout.Count == 0 ? 1 : Layout.Max(n => n.Depth) + 1) * Dy + 12;
+    }
+
+    private static bool Faded(SearchNode node) => node.Status is NodeStatus.PrunedBound;
+
+    private string Label(SearchNode node) => NodeLabel?.Invoke(node)
+        ?? (node.Status == NodeStatus.PrunedInfeasible ? "✗" : Palette.F(node.Value, "0"));
+
+    private static (string Fill, string Stroke, string? Dash, string Ink) Style(SearchNode node, bool best) => node.Status switch
+    {
+        _ when best => (Palette.Good, Palette.GoodText, null, "#fff"),
+        NodeStatus.PrunedInfeasible => ("#3a1a1d", Palette.BadText, null, Palette.BadText),
+        NodeStatus.PrunedBound => (Palette.Ink1, Palette.Text3, "3 2", Palette.Text3),
+        NodeStatus.Solution => (Palette.Ink2, Palette.GoodText, null, Palette.Text1),
+        _ => (Palette.Ink2, Palette.Text2, null, Palette.Text1),
+    };
+
+    private string BestPath(int id)
+    {
+        var points = new List<string>();
+        var byId = Tree.ToDictionary(n => n.Id);
+        for (var current = id; current >= 0 && byId.ContainsKey(current); current = byId[current].Parent)
+        {
+            var (x, y) = _pos[current];
+            points.Add($"{F(x)},{F(y)}");
+        }
+
+        return string.Join(" ", points);
+    }
+
+    private static string F(double v) => Palette.F(v, "0.#");
+}

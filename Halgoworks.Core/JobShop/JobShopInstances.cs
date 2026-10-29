@@ -38,7 +38,8 @@ public static class JobShopInstances
             dues.Add((int)Math.Round(work * (1.3 + rng.NextDouble() * 0.9)));
         }
 
-        return Build($"Workshop #{seed}", machines, routes, dues, null, WorkshopMachines.Take(machines).ToArray());
+        var names = machines <= WorkshopMachines.Length ? WorkshopMachines.Take(machines).ToArray() : null;
+        return Build($"Workshop #{seed}", machines, routes, dues, null, names);
     }
 
     private static JobShopInstance Build(string name, int machines, IReadOnlyList<(int Machine, int Duration)[]> routes, IReadOnlyList<int>? dues, int? optimum, string[]? machineNames = null)

@@ -1,0 +1,182 @@
+@using System.Diagnostics
+
+<div class="lab-body">
+    <div class="stage">
+        <div class="stage-head">
+            @if (Legend is not null)
+            {
+                <ul class="legend">@Legend</ul>
+            }
+            <span class="spacer"></span>
+            @if (_runs.Count > 0 && !_running)
+            {
+                <label class="field inline">
+                    <span>Showing</span>
+                    <select value="@_shown" @onchange="e => _shown = e.Value?.ToString() ?? _shown" aria-label="Which algorithm's result to draw">
+                        @foreach (var run in _runs)
+                        {
+                            <option value="@run.Name">@run.Name@(IsBest(run) ? " (best)" : "")</option>
+                        }
+                    </select>
+                </label>
+            }
+        </div>
+        <div class="stage-body">
+            @if (_running)
+            {
+                <div class="scale-progress" role="status">
+                    <span class="spinner" aria-hidden="true"></span>
+                    Running <strong>@_current</strong> (@(_runs.Count + 1) of @Jobs.Count)…
+                    <div class="race-track"><span style="width: @Palette.F(100.0 * _runs.Count / Math.Max(1, Jobs.Count), "0.#")%"></span></div>
+                </div>
+            }
+            @if (Shown is { } shown)
+            {
+                <p class="scale-caption"><strong>@shown.Name</strong>: @Format(shown.Result.Value)@(shown.Result.Note is { } note ? $" · {note}" : "")</p>
+                @Visual(shown)
+            }
+            @if (_runs.Count > 0)
+            {
+                <div class="scale-charts">
+                    <section aria-labelledby="scale-value">
+                        <h3 id="scale-value">@ValueLabel <small class="muted">@(LowerIsBetter ? "lower is better" : "higher is better")</small></h3>
+                        <BarChart Data="ValueBars()" Refs="Refs" TickFormat="Format" AriaLabel="@($"{ValueLabel} for each algorithm")" />
+                    </section>
+                    <section aria-labelledby="scale-time">
+                        <h3 id="scale-time">Run time <small class="muted">in your browser</small></h3>
+                        <BarChart Data="TimeBars()" Min="0" TickFormat="Ms" AriaLabel="Run time for each algorithm" />
+                    </section>
+                </div>
+            }
+            @if (!_running && Convergence() is { Count: > 0 } series)
+            {
+                <section class="scale-chart" aria-labelledby="scale-conv">
+                    <h3 id="scale-conv">How the searches converged</h3>
+                    <p class="muted">Best @ValueLabel.ToLowerInvariant() found so far, against how far each search had run. Constructive rules and exact methods don't have a curve.</p>
+                    <LineChart Series="series" XLabels="ConvergenceX" XTitle="Progress through the run" YFormat="Format" YTickFormat="Format" Height="240" AriaLabel="Convergence of the iterative searches" />
+                </section>
+            }
+        </div>
+    </div>
+    <aside class="side" aria-label="Scale settings and results">
+        <div class="side-section">
+            <div class="side-label"><strong>Bigger instance</strong><span>@Summary</span></div>
+            <div class="scale-controls">@Controls</div>
+        </div>
+        <div class="side-section">
+            <div class="side-label"><strong>Results</strong><span>click a row to draw it</span></div>
+            <table class="data-table scale-table" aria-label="Result and run time of each algorithm">
+                <thead>
+                    <tr><th>Algorithm</th><th class="r">@ValueLabel</th><th class="r">Time</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var job in Jobs)
+                    {
+                        var run = _runs.FirstOrDefault(r => r.Name == job.Name);
+                        <tr class="@(run is not null && run.Name == _shown ? "on" : null) @(run is null ? "pending" : null)"
+                            @onclick="() => Show(run)" title="@run?.Result.Note">
+                            <td>@job.Name@(run is not null && IsBest(run) ? " ★" : "")</td>
+                            <td class="r">@(run is null ? "…" : Format(run.Result.Value))</td>
+                            <td class="r">@(run is null ? "" : Ms(run.Milliseconds))</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <p class="muted small">★ best result. Times come from a stopwatch around each solver, running as WebAssembly on this device; narration and drawing aren't included.</p>
+        </div>
+    </aside>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ScaleJob> Jobs { get; set; } = [];
+
+    /// <summary>Bump when the instance changes; every job runs again.</summary>
+    [Parameter] public int Version { get; set; }
+
+    [Parameter, EditorRequired] public RenderFragment<ScaleRun> Visual { get; set; } = default!;
+    [Parameter] public RenderFragment? Controls { get; set; }
+    [Parameter] public RenderFragment? Legend { get; set; }
+    [Parameter] public string Summary { get; set; } = "";
+    [Parameter] public string ValueLabel { get; set; } = "Result";
+    [Parameter] public Func<double, string> Format { get; set; } = v => Palette.F(v);
+    [Parameter] public bool LowerIsBetter { get; set; }
+    [Parameter] public IReadOnlyList<RefLine> Refs { get; set; } = [];
+
+    private readonly List<ScaleRun> _runs = [];
+    private int _ranVersion = -1;
+    private int _token;
+    private bool _running;
+    private string _current = "";
+    private string? _shown;
+
+    private ScaleRun? Shown => _runs.FirstOrDefault(r => r.Name == _shown) ?? (_running ? _runs.LastOrDefault() : null);
+
+    private static readonly IReadOnlyList<string> ConvergenceX = Enumerable.Range(0, 51).Select(i => $"{i * 2}%").ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_ranVersion == Version) return;
+        _ranVersion = Version;
+        await RunAll();
+    }
+
+    private async Task RunAll()
+    {
+        var token = ++_token;
+        var jobs = Jobs;
+        _runs.Clear();
+        _shown = null;
+        _running = true;
+        foreach (var job in jobs)
+        {
+            _current = job.Name;
+            StateHasChanged();
+            // WebAssembly has one thread: yield long enough for the browser to paint the progress first.
+            await Task.Delay(20);
+            if (token != _token) return;
+            var watch = Stopwatch.StartNew();
+            var result = job.Run();
+            watch.Stop();
+            _runs.Add(new ScaleRun(job.Name, result, watch.Elapsed.TotalMilliseconds));
+        }
+
+        _running = false;
+        _shown = _runs.FirstOrDefault(IsBest)?.Name;
+        StateHasChanged();
+    }
+
+    private void Show(ScaleRun? run)
+    {
+        if (run is not null && !_running) _shown = run.Name;
+    }
+
+    private bool IsBest(ScaleRun run)
+    {
+        if (_runs.Count == 0) return false;
+        var target = LowerIsBetter ? _runs.Min(r => r.Result.Value) : _runs.Max(r => r.Result.Value);
+        return Math.Abs(run.Result.Value - target) < 1e-6;
+    }
+
+    private IReadOnlyList<BarDatum> ValueBars() =>
+        _runs.Select(r => new BarDatum(r.Name, r.Result.Value, Format(r.Result.Value), r.Name == _shown, r.Result.Note)).ToList();
+
+    private IReadOnlyList<BarDatum> TimeBars() =>
+        _runs.Select(r => new BarDatum(r.Name, r.Milliseconds, Ms(r.Milliseconds), r.Name == _shown)).ToList();
+
+    public static string Ms(double ms) => ms switch
+    {
+        < 1 => $"{Palette.F(ms, "0.##")} ms",
+        < 1000 => $"{Palette.F(ms, "0")} ms",
+        _ => $"{Palette.F(ms / 1000, "0.0")} s",
+    };
+
+    // Searches record different numbers of snapshots, so each curve is resampled to the same 51 points.
+    private IReadOnlyList<LineSeries> Convergence() => _runs
+        .Select((r, i) => (Run: r, Slot: i))
+        .Where(x => x.Run.Result.BestHistory is { Count: > 1 })
+        .Select(x => new LineSeries(x.Run.Name, Resample(x.Run.Result.BestHistory!), Palette.Slot(x.Slot), Step: true))
+        .ToList();
+
+    private static IReadOnlyList<double?> Resample(IReadOnlyList<double> values) =>
+        Enumerable.Range(0, 51).Select(i => (double?)values[(int)Math.Round(i / 50.0 * (values.Count - 1))]).ToList();
+}

@@ -1,0 +1,26 @@
+@using Halgoworks.Core.MaxFlow
+
+<RaceView TStep="MaxFlowStep" Entries="Entries" Build="Build" Version="Version" ScoreLabel="Flow reaching t"
+          Format="@(v => Palette.F(v))" Selected="Selected" SelectedChanged="SelectedChanged">
+    <Lane>
+        <FlowGraph Network="Network" Step="context.Step" Reduced="true" />
+    </Lane>
+</RaceView>
+
+@code {
+    [Parameter, EditorRequired] public FlowNetwork Network { get; set; } = default!;
+    [Parameter] public int Version { get; set; }
+    [Parameter] public IReadOnlyList<string>? Selected { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<string>> SelectedChanged { get; set; }
+
+    private static readonly IReadOnlyList<RaceEntry> Entries =
+    [
+        new(nameof(FlowAlgorithm.EdmondsKarp), "Edmonds–Karp"),
+        new(nameof(FlowAlgorithm.FordFulkerson), "Ford–Fulkerson"),
+        new(nameof(FlowAlgorithm.Dinic), "Dinic"),
+        new(nameof(FlowAlgorithm.PushRelabel), "Push–relabel"),
+    ];
+
+    private RaceLane<MaxFlowStep> Build(string key) =>
+        new(key, Entries.First(e => e.Key == key).Name, MaxFlowSolver.Trace(Network, Enum.Parse<FlowAlgorithm>(key)), s => s.Total);
+}

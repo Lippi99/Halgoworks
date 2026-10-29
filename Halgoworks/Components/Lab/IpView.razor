@@ -1,0 +1,152 @@
+@using Halgoworks.Core.Ip
+@using Halgoworks.Core.Knapsack
+@using Halgoworks.Core.BinPacking
+
+@* The integer program with this instance's numbers, the LP relaxation's answer at the node in focus, and the B&B tree. *@
+
+<div class="ip-model formula" aria-label="The integer program">
+    @if (Knapsack is { } k)
+    {
+        <div class="row">
+            <span>maximize</span>
+            <span>
+                @for (var j = 0; j < Model.Variables.Count; j++)
+                {
+                    <span class="term @Css(j)">@(j > 0 ? " + " : "")@Num(Model.Objective[j])@Model.Variables[j]</span>
+                }
+            </span>
+        </div>
+        <div class="row">
+            <span>weight limit</span>
+            <span>
+                @for (var j = 0; j < Model.Variables.Count; j++)
+                {
+                    <span class="term @Css(j)">@(j > 0 ? " + " : "")@Num(Model.Constraints[0].Coefficients[j])@Model.Variables[j]</span>
+                }
+                <span> ≤ @k.Capacity</span>
+            </span>
+        </div>
+    }
+    else if (Bins is { } b)
+    {
+        <div class="row"><span>minimize</span><span>@string.Join(" + ", Enumerable.Range(1, _binCount).Select(j => $"y{IntegerProgram.Sub(j)}"))&nbsp; (bins used)</span></div>
+        <div class="row"><span>one bin each</span><span>Σ<sub>j</sub> x<sub>i,j</sub> = 1 for every item i &nbsp;(@_items.Length rows)</span></div>
+        <div class="row"><span>capacity</span><span>Σ<sub>i</sub> size<sub>i</sub> · x<sub>i,j</sub> ≤ @b.Capacity · y<sub>j</sub> for every bin j &nbsp;(@_binCount rows)</span></div>
+        <div class="row"><span>no symmetry</span><span>item i only uses bins 1…i, and y<sub>j+1</sub> ≤ y<sub>j</sub></span></div>
+    }
+    <div class="row"><span>variables</span><span>each is 0 or 1. <em>Relaxed:</em> any value from 0 to 1</span></div>
+</div>
+
+<div class="ip-status">
+    <span>LP at this node: <strong>@(Step.Bound is { } bound ? Num(bound) : Step.X is null && Step.FocusNode is not null ? "infeasible" : "–")</strong></span>
+    <span>Best whole solution: <strong>@(Step.Incumbent is { } inc ? Num(inc) : "none yet")</strong></span>
+    <span>Linear programs solved: <strong>@Step.Lps</strong></span>
+</div>
+
+@if (Knapsack is { } kn)
+{
+    <ul class="ip-vars">
+        @for (var j = 0; j < Model.Variables.Count; j++)
+        {
+            var item = kn.Items[j];
+            var v = Value(j);
+            <li class="@Css(j)">
+                <span class="ip-name">@Model.Variables[j] <span class="muted">@item.Icon @item.Name</span></span>
+                <span class="ip-bar"><span style="width: @Palette.F(v * 100, "0.#")%"></span></span>
+                <span class="ip-val num">@Num(v)</span>
+                <span class="ip-tag">@Tag(j)</span>
+            </li>
+        }
+    </ul>
+}
+else if (Bins is { } bp)
+{
+    <div class="scroll-x">
+        <table class="ip-grid">
+            <thead>
+                <tr>
+                    <th>Item (size)</th>
+                    @for (var j = 0; j < _binCount; j++)
+                    {
+                        <th>bin @(j + 1)</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < _items.Length; i++)
+                {
+                    var size = bp.Items.First(x => x.Id == _items[i]).Size;
+                    <tr>
+                        <th>#@(_items[i] + 1) <span class="muted">(@size)</span></th>
+                        @for (var j = 0; j < _binCount; j++)
+                        {
+                            var cell = _varOf[i, j];
+                            if (cell < 0)
+                            {
+                                <td class="ip-off"></td>
+                                continue;
+                            }
+
+                            var v = Value(cell);
+                            <td class="@Css(cell)" style="--fill: @Palette.F(v, "0.###")" title="@($"{Model.Variables[cell]} = {Num(v)}")">@(v > 1e-6 ? Num(v) : "")</td>
+                        }
+                    </tr>
+                }
+                <tr class="ip-y">
+                    <th>bin used (y)</th>
+                    @for (var j = 0; j < _binCount; j++)
+                    {
+                        var y = Model.Variables.Count - _binCount + j;
+                        <td class="@Css(y)" style="--fill: @Palette.F(Value(y), "0.###")">@Num(Value(y))</td>
+                    }
+                </tr>
+            </tbody>
+        </table>
+    </div>
+}
+
+<SearchTreeView Tree="Step.Tree" Layout="Layout" FocusNode="Step.FocusNode" BestNode="Step.BestNode" NodeLabel="NodeLabel" />
+
+@code {
+    [Parameter, EditorRequired] public IpModel Model { get; set; } = default!;
+    [Parameter, EditorRequired] public IpStep Step { get; set; } = default!;
+
+    /// <summary>The finished tree, so node positions stay fixed.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<SearchNode> Layout { get; set; } = [];
+
+    [Parameter] public KnapsackInstance? Knapsack { get; set; }
+    [Parameter] public BinPackingInstance? Bins { get; set; }
+
+    private int[] _items = [];
+    private int _binCount;
+    private int[,] _varOf = new int[0, 0];
+
+    protected override void OnParametersSet()
+    {
+        if (Bins is null) return;
+        var (_, items, bins, varOf) = IntegerProgram.BinPacking(Bins);
+        (_items, _binCount, _varOf) = (items, bins, varOf);
+    }
+
+    private double Value(int j) => Step.X is { } x ? x[j] : Step.Fixed.Count > j && Step.Fixed[j] is { } f ? f : 0;
+
+    private string Css(int j)
+    {
+        if (Step.Fixed.Count > j && Step.Fixed[j] is not null) return "fixed";
+        if (Step.X is null) return "";
+        var v = Step.X[j];
+        return Math.Abs(v - Math.Round(v)) > 1e-6 ? "frac" : v > 0.5 ? "one" : "";
+    }
+
+    private string Tag(int j) => Css(j) switch
+    {
+        "fixed" => $"fixed to {Step.Fixed[j]}",
+        "frac" => "fractional",
+        _ => "",
+    };
+
+    private static string Num(double v) => Math.Abs(v - Math.Round(v)) < 1e-6 ? Palette.F(Math.Round(v), "0") : Palette.F(v, "0.##");
+
+    private static string NodeLabel(SearchNode node) =>
+        node.Status == NodeStatus.PrunedInfeasible ? "✗" : Num(node.Bound).Length > 4 ? Palette.F(node.Bound, "0") : Num(node.Bound);
+}

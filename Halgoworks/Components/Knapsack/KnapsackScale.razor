@@ -1,0 +1,95 @@
+@using Halgoworks.Core.Knapsack
+
+<ScaleView Jobs="_jobs" Version="_version" Summary="@($"{_instance.Items.Count} items, capacity {_instance.Capacity:#,0} kg")" ValueLabel="Value packed" Format="@(v => Palette.F(v, "#,0"))">
+    <Legend>
+        <li><span class="swatch" style="background: linear-gradient(90deg, @Palette.Ramp[1], @Palette.Ramp[^1])"></span>Packed, by value per kg (brighter is denser)</li>
+        <li><span class="swatch" style="background: @Palette.Muted"></span>Left out</li>
+    </Legend>
+    <Controls>
+        <label class="field">
+            <span>Items <output>@_size</output></span>
+            <input type="range" min="20" max="200" step="10" value="@_size" style="--pct: @Pct()" @onchange="SetSize" />
+        </label>
+        <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New items</button>
+        <p class="muted small">
+            Weights 5–60 kg, values loosely tied to weight, and room for about 40% of the total. Dynamic programming fills
+            @(((_instance.Items.Count + 1L) * (_instance.Capacity + 1)).ToString("#,0", CultureInfo.InvariantCulture)) table cells;
+            trying every subset would mean 2<sup>@_instance.Items.Count</sup>.
+        </p>
+    </Controls>
+    <Visual>
+        <KnapsackScaleView Instance="_instance" Chosen="(IReadOnlyList<int>)context.Result.Solution!" />
+    </Visual>
+</ScaleView>
+
+@code {
+    /// <summary>"size.seed", for share links.</summary>
+    [Parameter] public string? State { get; set; }
+    [Parameter] public EventCallback<string> StateChanged { get; set; }
+
+    private int _size = 80;
+    private int _seed = 1;
+    private int _version;
+    private bool _loaded;
+    private KnapsackInstance _instance = default!;
+    private IReadOnlyList<ScaleJob> _jobs = [];
+
+    protected override void OnParametersSet()
+    {
+        if (_loaded) return;
+        _loaded = true;
+        if (State?.Split('.') is [var size, var seed] && int.TryParse(size, out var n) && int.TryParse(seed, out var s))
+        {
+            _size = Math.Clamp(n / 10 * 10, 20, 200);
+            _seed = Math.Clamp(s, 1, 1_000_000);
+        }
+
+        Build();
+    }
+
+    private void Build()
+    {
+        var instance = _instance = KnapsackInstances.Large(_size, _seed);
+        ScaleResult Greedy(GreedyOrder order)
+        {
+            var r = KnapsackSolver.SolveGreedy(instance, order);
+            return new ScaleResult(r.Value, r.Chosen);
+        }
+
+        _jobs =
+        [
+            new("Dynamic programming", () =>
+            {
+                var r = KnapsackSolver.Solve(instance);
+                return new ScaleResult(r.Value, r.Chosen, "optimal");
+            }),
+            new("Branch and bound", () =>
+            {
+                var (r, nodes, complete) = KnapsackBranchAndBound.Solve(instance);
+                var count = nodes.ToString("#,0", CultureInfo.InvariantCulture);
+                return new ScaleResult(r.Value, r.Chosen, complete ? $"optimal, {count} nodes" : $"gave up after {count} nodes");
+            }),
+            new("Greedy by value per kg", () => Greedy(GreedyOrder.Density)),
+            new("Greedy by value", () => Greedy(GreedyOrder.Value)),
+            new("Greedy by lightest", () => Greedy(GreedyOrder.Lightest)),
+        ];
+        _version++;
+    }
+
+    private string Pct() => Palette.F(100.0 * (_size - 20) / 180, "0.#") + "%";
+
+    private async Task SetSize(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var size)) return;
+        _size = size;
+        Build();
+        await StateChanged.InvokeAsync($"{_size}.{_seed}");
+    }
+
+    private async Task Reroll()
+    {
+        _seed = Random.Shared.Next(1, 100_000);
+        Build();
+        await StateChanged.InvokeAsync($"{_size}.{_seed}");
+    }
+}

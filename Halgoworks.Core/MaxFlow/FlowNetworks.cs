@@ -49,6 +49,60 @@ public static class FlowNetworks
         new(10, 5, 6, 12),
     ], 0, 6);
 
+    /// <summary>
+    /// A big layered network for the Scale view: <paramref name="layers"/> middle layers of
+    /// <paramref name="width"/> nodes, each linked to nearby nodes of the next layer, plus a few side links.
+    /// </summary>
+    public static FlowNetwork Large(int layers, int width, int seed)
+    {
+        var rng = new Random(seed);
+        var nodes = new List<FlowNode> { new(0, "s", 0, 0.5) };
+        var edges = new List<FlowEdge>();
+        var exists = new HashSet<(int, int)>();
+        void Connect(int from, int to, int min, int max)
+        {
+            if (from == to || exists.Contains((from, to)) || exists.Contains((to, from))) return;
+            exists.Add((from, to));
+            edges.Add(new FlowEdge(edges.Count, from, to, rng.Next(min, max + 1)));
+        }
+
+        var grid = new int[layers][];
+        for (var l = 0; l < layers; l++)
+        {
+            grid[l] = new int[width];
+            for (var k = 0; k < width; k++)
+            {
+                grid[l][k] = nodes.Count;
+                nodes.Add(new FlowNode(nodes.Count, $"{l + 1}.{k + 1}", (l + 1.0) / (layers + 1), width == 1 ? 0.5 : 0.04 + 0.92 * k / (width - 1)));
+            }
+        }
+
+        var sink = nodes.Count;
+        nodes.Add(new FlowNode(sink, "t", 1, 0.5));
+        foreach (var v in grid[0]) Connect(0, v, 10, 40);
+        foreach (var u in grid[^1]) Connect(u, sink, 10, 40);
+        for (var l = 0; l + 1 < layers; l++)
+        {
+            for (var k = 0; k < width; k++)
+            {
+                // Mostly forward to nearby rows, so the drawing stays readable.
+                for (var d = -1; d <= 1; d++)
+                    if (k + d >= 0 && k + d < width && (d == 0 || rng.NextDouble() < 0.6))
+                        Connect(grid[l][k], grid[l + 1][k + d], 2, 25);
+            }
+
+            for (var k = 0; k + 1 < width; k++)
+            {
+                if (rng.NextDouble() >= 0.25) continue;
+                var (a, b) = (grid[l + 1][k], grid[l + 1][k + 1]);
+                if (rng.Next(2) == 0) Connect(a, b, 1, 10);
+                else Connect(b, a, 1, 10);
+            }
+        }
+
+        return new FlowNetwork($"{layers * width + 2} nodes #{seed}", nodes, edges, 0, sink);
+    }
+
     /// <summary>A random layered network: source, a few middle layers, sink.</summary>
     public static FlowNetwork Random(int middleLayers, int seed)
     {

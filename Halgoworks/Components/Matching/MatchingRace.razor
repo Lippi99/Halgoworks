@@ -1,0 +1,26 @@
+@using Halgoworks.Core.Matching
+@using Halgoworks.Core.MaxFlow
+
+<RaceView TStep="MatchingStep" Entries="Entries" Build="Build" Version="Version" ScoreLabel="Pairs matched"
+          Format="@(v => Palette.F(v))" Selected="Selected" SelectedChanged="SelectedChanged">
+    <Lane>
+        <BipartiteView Instance="Instance" Step="context.Step" />
+    </Lane>
+</RaceView>
+
+@code {
+    [Parameter, EditorRequired] public MatchingInstance Instance { get; set; } = default!;
+    [Parameter] public int Version { get; set; }
+    [Parameter] public IReadOnlyList<string>? Selected { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<string>> SelectedChanged { get; set; }
+
+    private static readonly IReadOnlyList<RaceEntry> Entries =
+    [
+        new(nameof(FlowAlgorithm.EdmondsKarp), "Edmonds–Karp"),
+        new(nameof(FlowAlgorithm.Dinic), "Dinic"),
+        new(nameof(FlowAlgorithm.FordFulkerson), "Ford–Fulkerson"),
+    ];
+
+    private RaceLane<MatchingStep> Build(string key) =>
+        new(key, Entries.First(e => e.Key == key).Name, MatchingSolver.Trace(Instance, Enum.Parse<FlowAlgorithm>(key)), s => s.Matched.Count);
+}

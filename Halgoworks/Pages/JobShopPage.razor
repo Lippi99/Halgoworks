@@ -2,19 +2,29 @@
 @using Halgoworks.Core.JobShop
 @using Halgoworks.Components.JobShop
 @implements IDisposable
+@inject NavigationManager Nav
 
-<PageTitle>Job-shop scheduling | Halgoworks</PageTitle>
+<SeoHead Title="@Problems.JobShop.SeoTitle" Description="@Problems.JobShop.SeoDescription" Path="@Problems.JobShop.Slug" Image="@Problems.JobShop.Slug"
+         ImageAlt="@($"{Problems.JobShop.Name} lab in Halgoworks")" StructuredData="SeoHead.LabData(Nav, Problems.JobShop)" />
 
 <div class="page">
     <LabHeader Problem="Problems.JobShop" />
+    <ShareNotice Problem="@_shareProblem" />
 
     <section class="lab" aria-label="Job-shop scheduling lab">
         <div class="toolbar">
             <div class="field">
-                <span>Algorithm</span>
-                <Segmented T="string" Options="Modes" Value="_mode" ValueChanged="SetMode" Label="Algorithm" />
+                <span>Mode</span>
+                <Segmented T="string" Options="LabModes.WithPlay" Value="_mode" ValueChanged="SetMode" Label="Mode" />
             </div>
-            @if (_mode == "dispatch")
+            @if (_mode == LabModes.Watch)
+            {
+            <div class="field">
+                <span>Algorithm</span>
+                <Segmented T="string" Options="Methods" Value="_method" ValueChanged="SetMethod" Label="Algorithm" />
+            </div>
+            }
+            @if (_method == "dispatch" && _mode == LabModes.Watch)
             {
                 <label class="field">
                     <span>Priority rule</span>
@@ -26,9 +36,19 @@
                     </select>
                 </label>
             }
+            @if (_mode != LabModes.Scale)
+            {
             <label class="field">
                 <span>Example</span>
                 <select value="@_preset" @onchange="SetPreset">
+                    @if (_preset == "shared")
+                    {
+                        <option value="shared">Shared example</option>
+                    }
+                    @if (_preset == "custom")
+                    {
+                        <option value="custom">Your edited example</option>
+                    }
                     <option value="small">3 jobs on 3 machines</option>
                     <option value="ft06">Fisher &amp; Thompson ft06 (6 × 6)</option>
                     <option value="random">Random workshop with due dates</option>
@@ -46,20 +66,45 @@
                 </label>
                 <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New jobs</button>
             }
+            }
             <span class="spacer"></span>
+            @if (_mode == LabModes.Watch)
+            {
+                <label class="check"><input type="checkbox" checked="@_editing" @onchange="e => _editing = e.Value is true" />Edit</label>
+            }
+            <ShareButton Url="ShareLink" />
+            @if (_mode == LabModes.Watch)
+            {
             <div class="field">
                 <span>Rows</span>
                 <Segmented T="bool" Options="RowOptions" Value="_byJob" ValueChanged="v => _byJob = v" Label="Gantt rows" />
             </div>
+            }
         </div>
 
+        @if (_mode == LabModes.Race)
+        {
+            <JobShopRace Instance="_instance" Version="_version" Selected="RaceKeys" SelectedChanged="v => _raceState = string.Join(',', v)" />
+        }
+        else if (_mode == LabModes.Scale)
+        {
+            <JobShopScale State="@_scaleState" StateChanged="v => _scaleState = v" />
+        }
+        else if (_mode == LabModes.Play)
+        {
+            <div class="lab-body">
+                <JobShopPlay Instance="_instance" State="@_playState" StateChanged="v => _playState = v" />
+            </div>
+        }
+        else
+        {
         <div class="lab-body">
             <div class="stage">
                 <div class="stage-head">
                     <ul class="legend">
                         <li><span class="swatch" style="background: @Palette.Series[0]"></span>Scheduled operation (color = job)</li>
                         <li><span class="swatch" style="border: 1.5px dashed @Palette.Text2; background: transparent"></span>Waiting, at its earliest start</li>
-                        <li><span class="swatch ring"></span>@(_mode == "tabu" ? "Critical path and swapped pair" : "Competing for the machine, or critical path")</li>
+                        <li><span class="swatch ring"></span>@(_method == "tabu" ? "Critical path and swapped pair" : "Competing for the machine, or critical path")</li>
                     </ul>
                 </div>
                 <div class="stage-body">
@@ -67,13 +112,21 @@
                     <JobsLegend Instance="_instance" Step="Step" />
                 </div>
             </div>
-            <StepPanel Step="Step" Algorithm="Info" Index="_player.Index" Count="_player.Count" />
+            @if (_editing)
+            {
+                <JobShopEditor Instance="_instance" Changed="Edited" />
+            }
+            else
+            {
+                <StepPanel Step="Step" Algorithm="Info" Index="_player.Index" Count="_player.Count" />
+            }
         </div>
         <PlaybackBar Player="_player" Marks="_marks" />
+        }
     </section>
 
     <div class="results">
-        @if (_mode == "tabu")
+        @if (_method == "tabu")
         {
             <section class="panel" aria-labelledby="js-converge">
                 <h2 class="panel-title" id="js-converge">Makespan, iteration by iteration</h2>
@@ -91,7 +144,7 @@
                 <BarChart Data="_compare" Refs="_refs" AriaLabel="Makespan by method" Min="0" />
             </div>
         </section>
-        @if (_mode == "dispatch")
+        @if (_method == "dispatch")
         {
             <section class="panel" aria-labelledby="js-numbers">
                 <h2 class="panel-title" id="js-numbers">This example in numbers</h2>
@@ -112,7 +165,7 @@
 </div>
 
 @code {
-    private static readonly IReadOnlyList<SegOption<string>> Modes =
+    private static readonly IReadOnlyList<SegOption<string>> Methods =
     [
         new("dispatch", "Dispatching (Giffler–Thompson)"),
         new("tabu", "Tabu search"),
@@ -121,7 +174,7 @@
     private static readonly IReadOnlyList<SegOption<bool>> RowOptions = [new(false, "Machines"), new(true, "Jobs")];
 
     private readonly Player _player = new();
-    private string _mode = "dispatch";
+    private string _method = "dispatch";
     private DispatchRule _rule = DispatchRule.Mwkr;
     private string _preset = "ft06";
     private int _jobs = 5;
@@ -141,7 +194,7 @@
     private int _horizon = 10;
 
     private JobShopStep Step => _steps[Math.Min(_player.Index, _steps.Count - 1)];
-    private AlgorithmInfo Info => _mode == "tabu" ? JobShopSolver.TabuInfo : JobShopSolver.GifflerThompsonInfo(_rule);
+    private AlgorithmInfo Info => _method == "tabu" ? JobShopSolver.TabuInfo : JobShopSolver.GifflerThompsonInfo(_rule);
 
     // (n!)^m machine orders, shown compactly.
     private string Orders
@@ -159,20 +212,88 @@
         }
     }
 
+    [SupplyParameterFromQuery(Name = "i")] public string? SharedInstance { get; set; }
+    [SupplyParameterFromQuery(Name = "a")] public string? SharedAlgorithm { get; set; }
+    [SupplyParameterFromQuery(Name = "s")] public int? SharedStep { get; set; }
+    [SupplyParameterFromQuery(Name = "v")] public string? SharedView { get; set; }
+    [SupplyParameterFromQuery(Name = "m")] public string? SharedMode { get; set; }
+    [SupplyParameterFromQuery(Name = "p")] public string? SharedPlay { get; set; }
+
+    private string _mode = LabModes.Watch;
+    private string? _playState;
+    private string? _raceState;
+    private int _version;
+    private string? _scaleState;
+
+    private IReadOnlyList<string>? RaceKeys => _raceState?.Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+    // Whatever the current mode keeps in share links: moves in Play, racers in Race, size and seed in Scale.
+    private string? ModeState()
+    {
+        var state = _mode switch
+        {
+            LabModes.Play => _playState,
+            LabModes.Race => _raceState,
+            LabModes.Scale => _scaleState,
+            _ => null,
+        };
+        return string.IsNullOrEmpty(state) ? null : state;
+    }
+    private bool _editing;
+    [SupplyParameterFromQuery(Name = "r")] public string? SharedRule { get; set; }
+    private string? _shareProblem;
+
     protected override void OnInitialized()
     {
         _player.Changed += OnPlayerChanged;
+        if (SharedInstance is not null && ShareState.Decode<JobShopInstance>(SharedInstance, InstanceChecks.Check, out _shareProblem) is { } shared)
+        {
+            _instance = shared;
+            _preset = "shared";
+        }
+
+        if (SharedAlgorithm is "dispatch" or "tabu") _method = SharedAlgorithm;
+        if (Enum.TryParse<DispatchRule>(SharedRule, out var rule) && Enum.IsDefined(rule)) _rule = rule;
+        _byJob = SharedView == "jobs";
+        _mode = LabModes.Parse(SharedMode);
+        _playState = _mode == LabModes.Play ? SharedPlay : null;
+        _raceState = _mode == LabModes.Race ? SharedPlay : null;
+        _scaleState = _mode == LabModes.Scale ? SharedPlay : null;
         Rebuild(newInstance: true);
+        if (SharedStep is { } step) _player.Seek(step);
     }
 
     private void OnPlayerChanged() => InvokeAsync(StateHasChanged);
 
+    private string ShareLink() => ShareState.Link(Nav, "job-shop",
+        ("i", ShareState.Encode(_instance)), ("a", _method), ("r", _method == "dispatch" ? _rule.ToString() : null),
+        ("s", _player.Index.ToString(CultureInfo.InvariantCulture)), ("v", _byJob ? "jobs" : null),
+        ("m", _mode == LabModes.Watch ? null : _mode), ("p", ModeState()));
+
+    private void SetMode(string mode)
+    {
+        _mode = mode;
+        _editing = false;
+        _player.Pause();
+    }
+
+    // Edits become a custom example; the trace jumps to the end so the new result is visible at once.
+    private void Edited(JobShopInstance instance)
+    {
+        _instance = instance with { Name = "Your edited example" };
+        _preset = "custom";
+        Rebuild(newInstance: true);
+        _player.Last();
+    }
+
     private void Rebuild(bool newInstance)
     {
+        _version++;
         if (newInstance)
         {
             _instance = _preset switch
             {
+                "shared" or "custom" => _instance,
                 "small" => JobShopInstances.Small(),
                 "random" => JobShopInstances.Random(_jobs, _machines, _seed),
                 _ => JobShopInstances.Ft06(),
@@ -194,16 +315,16 @@
             _convergenceRefs = _instance.Optimum is { } opt ? [new RefLine($"Optimum {opt}", opt)] : [new RefLine($"Lower bound {lb}", lb)];
         }
 
-        _steps = _mode == "tabu" ? _tabu : JobShopSolver.TraceDispatch(_instance, _rule);
+        _steps = _method == "tabu" ? _tabu : JobShopSolver.TraceDispatch(_instance, _rule);
         _marks = Enumerable.Range(1, _steps.Count - 1).Where(i => _steps[i].Phase != _steps[i - 1].Phase).ToList();
         _compare = JobShopSolver.Rules
             .Where(r => r != DispatchRule.Edd || _instance.HasDueDates)
             .Select(r =>
             {
                 var makespan = JobShopSolver.Makespan(JobShopSolver.Solve(_instance, r));
-                return new BarDatum(JobShopSolver.Short(r), makespan, $"{makespan}", _mode == "dispatch" && r == _rule, JobShopSolver.Describe(r));
+                return new BarDatum(JobShopSolver.Short(r), makespan, $"{makespan}", _method == "dispatch" && r == _rule, JobShopSolver.Describe(r));
             })
-            .Append(new BarDatum("Tabu search", _tabu[^1].Makespan, $"{_tabu[^1].Makespan}", _mode == "tabu", "Starts from MWKR, then improves"))
+            .Append(new BarDatum("Tabu search", _tabu[^1].Makespan, $"{_tabu[^1].Makespan}", _method == "tabu", "Starts from MWKR, then improves"))
             .ToList();
         var latest = _steps.Max(s => Math.Max(s.Makespan, s.Candidates.Select(c => c.End).DefaultIfEmpty(0).Max()));
         var dues = _instance.Jobs.Select(j => j.Due ?? 0).DefaultIfEmpty(0).Max();
@@ -211,9 +332,9 @@
         _player.Load(_steps.Count);
     }
 
-    private void SetMode(string mode)
+    private void SetMethod(string mode)
     {
-        _mode = mode;
+        _method = mode;
         Rebuild(newInstance: false);
     }
 

@@ -51,11 +51,12 @@ public static class KnapsackSolver
             "return the packed items",
         ]);
 
-    public static IReadOnlyList<AlgorithmInfo> All { get; } = [DynamicProgramming, Greedy];
+    public static IReadOnlyList<AlgorithmInfo> All { get; } = [DynamicProgramming, KnapsackBranchAndBound.Info, Greedy];
 
     public static IReadOnlyList<KnapsackStep> Trace(KnapsackInstance instance, string algorithmId) => algorithmId switch
     {
         "greedy" => TraceGreedy(instance),
+        "bnb" => KnapsackBranchAndBound.Trace(instance),
         _ => TraceDp(instance),
     };
 

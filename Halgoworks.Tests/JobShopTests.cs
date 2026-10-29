@@ -143,3 +143,43 @@ public class JobShopTests(ITestOutputHelper output)
         }
     }
 }
+
+public class JobShopOrderTests
+{
+    [Fact]
+    public void Evaluating_a_rules_own_order_reproduces_its_makespan()
+    {
+        var instance = JobShopInstances.Ft06();
+        foreach (var rule in JobShopSolver.Rules.Where(r => r != DispatchRule.Edd))
+        {
+            var schedule = JobShopSolver.Solve(instance, rule);
+            var evaluated = JobShopSolver.EvaluateOrder(instance, JobShopSolver.OrderOf(instance, schedule));
+            Assert.NotNull(evaluated);
+            Assert.True(evaluated.Makespan <= JobShopSolver.Makespan(schedule));
+            Assert.Null(JobShopSolver.Validate(instance, evaluated.Schedule));
+        }
+    }
+
+    [Fact]
+    public void The_plain_job_order_is_valid_and_contradictions_are_rejected()
+    {
+        var instance = JobShopInstances.Small();
+        var plain = JobShopSolver.EvaluateOrder(instance, JobShopSolver.JobOrder(instance));
+        Assert.NotNull(plain);
+        Assert.Null(JobShopSolver.Validate(instance, plain.Schedule));
+
+        // J1 runs M1 then M2, J2 runs M1 then M3 then M2. Putting J2 first on M2 but J1 first on M1 is fine;
+        // a cycle needs two machines ordered against each other. Build one on ft06: J1 needs M3 before M1, J2 needs M2 before M3.
+        var ft = JobShopInstances.Ft06();
+        var order = JobShopSolver.JobOrder(ft).Select(o => o.ToList()).ToList();
+        // On M2 (index 1) put J1's op before J2's first op, and on M3 (index 2) put J2's op before J1's first op:
+        // J1·1 (M3) → J1·2 (M1) → J1·3 (M2) must precede J2·1 (M2) → J2·2 (M3), while J2·2 precedes J1·1 on M3: a cycle.
+        order[2].Remove(new OpRef(1, 1));
+        order[2].Insert(0, new OpRef(1, 1));
+        Assert.Null(JobShopSolver.EvaluateOrder(ft, order));
+
+        var wrong = JobShopSolver.JobOrder(ft).Select(o => o.ToList()).ToList();
+        wrong[0].RemoveAt(0);
+        Assert.Null(JobShopSolver.EvaluateOrder(ft, wrong));
+    }
+}

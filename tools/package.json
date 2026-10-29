@@ -1,0 +1,13 @@
+{
+  "name": "halgoworks-tools",
+  "private": true,
+  "description": "Build-time helpers: pre-rendering for search engines and link-preview images.",
+  "type": "module",
+  "scripts": {
+    "og-images": "node og-images.mjs",
+    "prerender": "node prerender.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.64.1"
+  }
+}

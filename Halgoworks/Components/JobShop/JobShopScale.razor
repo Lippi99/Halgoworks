@@ -1,0 +1,105 @@
+@using Halgoworks.Core.JobShop
+
+<ScaleView Jobs="_jobs" Version="_version" Summary="@($"{_instance.Jobs.Count} jobs × {_instance.Machines.Count} machines, {_instance.Jobs.Count * _instance.Machines.Count} operations")"
+           ValueLabel="Makespan" LowerIsBetter="true" Format="@(v => Palette.F(v))" Refs="_refs">
+    <Legend>
+        <li><span class="swatch" style="background: @Palette.Series[0]"></span>Operation (color = job)</li>
+        <li><span class="swatch ring"></span>Critical path</li>
+    </Legend>
+    <Controls>
+        <label class="field">
+            <span>Jobs <output>@_jobsCount</output></span>
+            <input type="range" min="5" max="20" value="@_jobsCount" style="--pct: @Pct(_jobsCount, 5, 20)" @onchange="e => Set(e, v => _jobsCount = v)" />
+        </label>
+        <label class="field">
+            <span>Machines <output>@_machines</output></span>
+            <input type="range" min="3" max="10" value="@_machines" style="--pct: @Pct(_machines, 3, 10)" @onchange="e => Set(e, v => _machines = v)" />
+        </label>
+        <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New workshop</button>
+        <p class="muted small">
+            Every job visits every machine once, in a random order, for 1–9 hours each. The lower bound is the busiest machine's
+            total work or the longest job, whichever is larger. Tabu search runs @TabuIterations iterations from the MWKR schedule.
+        </p>
+    </Controls>
+    <Visual>
+        @{
+            var solution = (Plan)context.Result.Solution!;
+        }
+        <GanttChart Instance="_instance" Step="new JobShopStep { Scheduled = solution.Schedule, Critical = solution.Critical, Makespan = JobShopSolver.Makespan(solution.Schedule) }" Horizon="_horizon" />
+    </Visual>
+</ScaleView>
+
+@code {
+    /// <summary>"jobs.machines.seed", for share links.</summary>
+    [Parameter] public string? State { get; set; }
+    [Parameter] public EventCallback<string> StateChanged { get; set; }
+
+    private sealed record Plan(IReadOnlyList<ScheduledOp> Schedule, IReadOnlyList<OpRef> Critical);
+
+    private const int TabuIterations = 250;
+    private int _jobsCount = 15;
+    private int _machines = 10;
+    private int _seed = 1;
+    private int _version;
+    private int _horizon = 10;
+    private bool _loaded;
+    private JobShopInstance _instance = default!;
+    private IReadOnlyList<ScaleJob> _jobs = [];
+    private IReadOnlyList<RefLine> _refs = [];
+
+    protected override void OnParametersSet()
+    {
+        if (_loaded) return;
+        _loaded = true;
+        if (State?.Split('.') is [var j, var m, var seed] && int.TryParse(j, out var jobs) && int.TryParse(m, out var machines) && int.TryParse(seed, out var s))
+        {
+            _jobsCount = Math.Clamp(jobs, 5, 20);
+            _machines = Math.Clamp(machines, 3, 10);
+            _seed = Math.Clamp(s, 1, 1_000_000);
+        }
+
+        Build();
+    }
+
+    private void Build()
+    {
+        var instance = _instance = JobShopInstances.Random(_jobsCount, _machines, _seed);
+        _refs = [new RefLine("Lower bound", instance.LowerBound)];
+        var rules = JobShopSolver.Rules.Where(r => r != DispatchRule.Edd || instance.HasDueDates).ToList();
+        _horizon = (int)Math.Ceiling(rules.Max(r => JobShopSolver.Makespan(JobShopSolver.Solve(instance, r))) * 1.03) + 1;
+        _jobs =
+        [
+            .. rules.Select(rule => new ScaleJob($"{JobShopSolver.Short(rule)}", () =>
+            {
+                var schedule = JobShopSolver.Solve(instance, rule);
+                return new ScaleResult(JobShopSolver.Makespan(schedule), new Plan(schedule, JobShopSolver.CriticalPath(instance, schedule)), JobShopSolver.Describe(rule));
+            })),
+            new ScaleJob("Tabu search", () =>
+            {
+                var last = JobShopSolver.TraceTabu(instance, TabuIterations)[^1];
+                return new ScaleResult(last.Makespan, new Plan(last.Scheduled, last.Critical), $"{last.BestHistory.Count - 1} iterations",
+                    last.History.Select(v => (double)v).ToList(), last.BestHistory.Select(v => (double)v).ToList());
+            }),
+        ];
+        _version++;
+    }
+
+    private static string Pct(int value, int min, int max) => Palette.F(100.0 * (value - min) / (max - min), "0.#") + "%";
+
+    private Task Save() => StateChanged.InvokeAsync($"{_jobsCount}.{_machines}.{_seed}");
+
+    private Task Set(ChangeEventArgs e, Action<int> set)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var value)) return Task.CompletedTask;
+        set(value);
+        Build();
+        return Save();
+    }
+
+    private Task Reroll()
+    {
+        _seed = Random.Shared.Next(1, 100_000);
+        Build();
+        return Save();
+    }
+}

@@ -1,6 +1,8 @@
 @page "/"
 
-<PageTitle>Halgoworks | Optimization algorithms, step by step</PageTitle>
+<SeoHead Title="Halgoworks | Optimization algorithms visualized, step by step"
+         Description="Interactive labs for six classic optimization problems: vehicle routing, knapsack, job-shop scheduling, bin packing, maximum flow and bipartite matching."
+         StructuredData="HomeData()" />
 
 <section class="hero" aria-labelledby="hero-title">
     <div class="hero-scene">
@@ -8,13 +10,13 @@
     </div>
     <div class="hero-inner">
         <div>
-            <h1 id="hero-title" class="sr-only" tabindex="-1">Halgoworks: five optimization problems, solved step by step</h1>
+            <h1 id="hero-title" class="sr-only" tabindex="-1">Halgoworks: six optimization problems, solved step by step</h1>
             <p class="hero-intro">
-                Five classic optimization problems, solved in your browser by real algorithms written in <strong>C#</strong>.
+                Six classic optimization problems, solved in your browser by real algorithms written in <strong>C#</strong>.
                 Pick one and watch every decision as it's made, with the reasoning spelled out.
             </p>
         </div>
-        <nav aria-label="The five problems">
+        <nav aria-label="The six problems">
             <ul class="verbs">
                 @foreach (var problem in Problems.All)
                 {
@@ -37,10 +39,10 @@
 <div class="page">
     <section class="section" aria-labelledby="problems-title">
         <div class="section-head">
-            <h2 class="section-title" id="problems-title">Five problems, one question: what's the best choice?</h2>
+            <h2 class="section-title" id="problems-title">Six problems, one question: what's the best choice?</h2>
             <p class="section-lede">
                 Each asks for the best option among more possibilities than anyone could ever check. Four of them have no known fast exact method,
-                so the labs show both exact algorithms and the shortcuts used in practice. The fifth is the exception.
+                so the labs show both exact algorithms and the shortcuts used in practice. The last two are the exceptions, and one is the other in disguise.
             </p>
         </div>
         <ul class="problem-list">
@@ -158,4 +160,35 @@
         var exponent = (int)Math.Floor(log);
         return $"{Palette.F(Math.Pow(10, log - exponent), "0.0")} × {Scale.Power(exponent)}";
     }
+}
+
+@code {
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    // The site, plus the six labs as an ordered list so search engines see the structure.
+    private object HomeData() => new object[]
+    {
+        new Dictionary<string, object>
+        {
+            ["@context"] = "https://schema.org",
+            ["@type"] = "WebSite",
+            ["name"] = "Halgoworks",
+            ["url"] = Nav.BaseUri,
+            ["inLanguage"] = "en",
+            ["description"] = "Interactive, narrated visualizations of classic optimization algorithms.",
+        },
+        new Dictionary<string, object>
+        {
+            ["@context"] = "https://schema.org",
+            ["@type"] = "ItemList",
+            ["name"] = "Optimization labs",
+            ["itemListElement"] = Problems.All.Select((p, i) => new Dictionary<string, object>
+            {
+                ["@type"] = "ListItem",
+                ["position"] = i + 1,
+                ["name"] = p.Name,
+                ["url"] = Nav.BaseUri + p.Slug,
+            }).ToList(),
+        },
+    };
 }

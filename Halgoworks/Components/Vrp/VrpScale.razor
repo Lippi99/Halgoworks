@@ -1,0 +1,115 @@
+@using Halgoworks.Core.Vrp
+
+<ScaleView Jobs="_jobs" Version="_version" Summary="@($"{_instance.Customers.Count} customers, trucks carry {_instance.Capacity}")" ValueLabel="Total distance"
+           LowerIsBetter="true" Format="@(v => $"{Palette.F(v, "#,0.#")} km")">
+    <Legend>
+        <li>Each color is one truck's route; dot size is the customer's demand</li>
+    </Legend>
+    <Controls>
+        <label class="field">
+            <span>Customers <output>@_size</output></span>
+            <input type="range" min="25" max="200" step="25" value="@_size" style="--pct: @Pct()" @onchange="SetSize" />
+        </label>
+        <label class="check"><input type="checkbox" checked="@_clustered" @onchange="ToggleClustered" />Clustered neighborhoods</label>
+        <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New map</button>
+        <p class="muted small">
+            The constructive rules are each followed by 2-opt. Annealing starts from the savings plan and tries
+            @_iterations.ToString("#,0", CultureInfo.InvariantCulture) random moves; the genetic algorithm adds that plan to its starting population of 36 and
+            breeds them for 70 generations. Their times don't include building the savings plan. A plain genetic algorithm rarely improves a plan this good at this size;
+            practical solvers add a local-search step to each child (a <em>memetic</em> algorithm). No deadlines here, so only capacity limits the routes.
+        </p>
+    </Controls>
+    <Visual>
+        <VrpMap Instance="_instance" Step="AsStep((IReadOnlyList<int[]>)context.Result.Solution!)" Compact="@(_instance.Customers.Count > 60)" Reduced="true" />
+    </Visual>
+</ScaleView>
+
+@code {
+    /// <summary>"size.seed.c" (c = clustered), for share links.</summary>
+    [Parameter] public string? State { get; set; }
+    [Parameter] public EventCallback<string> StateChanged { get; set; }
+
+    private int _size = 100;
+    private int _seed = 1;
+    private bool _clustered = true;
+    private int _version;
+    private bool _loaded;
+    private int _iterations;
+    private VrpInstance _instance = default!;
+    private IReadOnlyList<ScaleJob> _jobs = [];
+
+    protected override void OnParametersSet()
+    {
+        if (_loaded) return;
+        _loaded = true;
+        if (State?.Split('.') is [var size, var seed, ..] parts && int.TryParse(size, out var n) && int.TryParse(seed, out var s))
+        {
+            _size = Math.Clamp(n / 25 * 25, 25, 200);
+            _seed = Math.Clamp(s, 1, 1_000_000);
+            _clustered = parts.Length < 3 || parts[2] != "u";
+        }
+
+        Build();
+    }
+
+    private void Build()
+    {
+        var instance = _instance = VrpInstances.Large(_size, _seed, _clustered);
+        // More customers need more random moves to get anywhere.
+        var iterations = _iterations = Math.Clamp(_size * 120, 6000, 24000);
+        // The metaheuristics start from the savings plan (computed by the first job), so they can only improve on it.
+        IReadOnlyList<int[]>? savings = null;
+        ScaleResult Constructive(VrpAlgorithm algorithm)
+        {
+            var routes = VrpSolver.Solve(instance, algorithm, polish: true);
+            if (algorithm == VrpAlgorithm.Savings) savings = routes;
+            return new ScaleResult(VrpSolver.TotalDistance(instance, routes), routes, $"{routes.Count} trucks");
+        }
+
+        ScaleResult Meta(MetaheuristicRun run) =>
+            new(VrpSolver.TotalDistance(instance, run.Best), run.Best, $"{run.Best.Count} trucks", run.History, run.BestHistory);
+
+        _jobs =
+        [
+            new("Clarke–Wright savings", () => Constructive(VrpAlgorithm.Savings)),
+            new("Sweep", () => Constructive(VrpAlgorithm.Sweep)),
+            new("Nearest neighbor", () => Constructive(VrpAlgorithm.NearestNeighbor)),
+            new("Simulated annealing", () => Meta(VrpMetaheuristics.RunAnnealing(instance, iterations, savings))),
+            new("Genetic algorithm", () => Meta(VrpMetaheuristics.RunGenetic(instance, seed: savings))),
+        ];
+        _version++;
+    }
+
+    private static VrpStep AsStep(IReadOnlyList<int[]> routes) => new()
+    {
+        Routes = routes,
+        Colors = Enumerable.Range(0, routes.Count).Select(r => r % Palette.Series.Length).ToList(),
+        Final = true,
+    };
+
+    private string Pct() => Palette.F(100.0 * (_size - 25) / 175, "0.#") + "%";
+
+    private Task Save() => StateChanged.InvokeAsync($"{_size}.{_seed}.{(_clustered ? "c" : "u")}");
+
+    private Task SetSize(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var size)) return Task.CompletedTask;
+        _size = size;
+        Build();
+        return Save();
+    }
+
+    private Task ToggleClustered(ChangeEventArgs e)
+    {
+        _clustered = e.Value is true;
+        Build();
+        return Save();
+    }
+
+    private Task Reroll()
+    {
+        _seed = Random.Shared.Next(1, 100_000);
+        Build();
+        return Save();
+    }
+}

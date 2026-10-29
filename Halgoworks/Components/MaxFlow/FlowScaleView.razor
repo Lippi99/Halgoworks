@@ -1,0 +1,61 @@
+@using Halgoworks.Core.MaxFlow
+
+@* A big network at a glance: no labels, line brightness for how full each pipe is, the minimum cut in amber. *@
+<svg class="viz" viewBox="0 0 @W @H" role="img" aria-label="@($"Network with maximum flow {Result.Total}; {_cut.Count} pipes form the minimum cut")">
+    <rect x="0" y="0" width="@W" height="@H" rx="8" fill="@Palette.Ink0" stroke="@Palette.Line" />
+    @foreach (var e in Network.Edges)
+    {
+        var (x1, y1) = P(e.From);
+        var (x2, y2) = P(e.To);
+        var flow = Result.Flow[e.Id];
+        var share = e.Capacity == 0 ? 0 : (double)flow / e.Capacity;
+        var cut = _cut.Contains(e.Id);
+        <line x1="@F(x1)" y1="@F(y1)" x2="@F(x2)" y2="@F(y2)"
+              stroke="@(cut ? Palette.Signal : flow > 0 ? Palette.Series[0] : Palette.Muted)"
+              stroke-width="@F(cut ? 2.6 : 0.8 + 2.2 * share)" opacity="@F(cut ? 1 : flow > 0 ? 0.35 + 0.65 * share : 0.35)" stroke-linecap="round">
+            <title>@($"{Network.Nodes[e.From].Label} → {Network.Nodes[e.To].Label}: {flow} of {e.Capacity}{(cut ? ", in the minimum cut" : "")}")</title>
+        </line>
+    }
+    @foreach (var node in Network.Nodes)
+    {
+        var (x, y) = P(node.Id);
+        var terminal = node.Id == Network.Source || node.Id == Network.Sink;
+        var source = Result.SourceSide[node.Id];
+        <circle cx="@F(x)" cy="@F(y)" r="@(terminal ? 13 : 4.5)" fill="@(source ? Palette.Series[0] : Palette.Ink2)" stroke="@(source ? Palette.Ink0 : Palette.Text3)" stroke-width="1.2">
+            <title>@node.Label@(source ? ", source side" : ", sink side")</title>
+        </circle>
+        @if (terminal)
+        {
+            <g><text x="@F(x)" y="@F(y)" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="700" fill="#fff">@node.Label</text></g>
+        }
+    }
+</svg>
+<dl class="scale-figures">
+    <div><dt>Maximum flow</dt><dd>@Result.Total</dd></div>
+    <div><dt>Pipes in the minimum cut</dt><dd>@_cut.Count</dd></div>
+    <div><dt>Cut capacity</dt><dd>@_cutCapacity</dd></div>
+    <div><dt>Nodes on the source side</dt><dd>@Result.SourceSide.Count(s => s) <small class="muted">of @Network.Nodes.Count</small></dd></div>
+</dl>
+
+@code {
+    [Parameter, EditorRequired] public FlowNetwork Network { get; set; } = default!;
+    [Parameter, EditorRequired] public MaxFlowResult Result { get; set; } = default!;
+
+    private const int W = 1000;
+    private const int H = 560;
+    private const int Pad = 30;
+
+    private HashSet<int> _cut = [];
+    private int _cutCapacity;
+
+    protected override void OnParametersSet()
+    {
+        var cut = MaxFlowSolver.CutEdges(Network, Result.SourceSide);
+        _cut = [.. cut.Select(e => e.Id)];
+        _cutCapacity = cut.Sum(e => e.Capacity);
+    }
+
+    private (double X, double Y) P(int id) => (Pad + Network.Nodes[id].X * (W - 2 * Pad), Pad + Network.Nodes[id].Y * (H - 2 * Pad));
+
+    private static string F(double v) => Palette.F(v, "0.##");
+}

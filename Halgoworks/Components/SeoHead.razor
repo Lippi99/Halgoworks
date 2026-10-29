@@ -1,0 +1,80 @@
+@using System.Text.Json
+@inject NavigationManager Nav
+
+@* Everything search engines and link previews read from <head>. Tags carry data-seo so the
+   pre-rendered copies (see tools/prerender.mjs) can be told apart from the live ones. *@
+<PageTitle>@FullTitle</PageTitle>
+<HeadContent>
+    <meta name="description" content="@Description" data-seo />
+    @if (NoIndex)
+    {
+        <meta name="robots" content="noindex" data-seo />
+    }
+    else
+    {
+        <link rel="canonical" href="@Url" data-seo />
+    }
+    <meta property="og:site_name" content="Halgoworks" data-seo />
+    <meta property="og:type" content="website" data-seo />
+    <meta property="og:title" content="@Title" data-seo />
+    <meta property="og:description" content="@Description" data-seo />
+    <meta property="og:url" content="@Url" data-seo />
+    <meta property="og:image" content="@ImageUrl" data-seo />
+    <meta property="og:image:width" content="1200" data-seo />
+    <meta property="og:image:height" content="630" data-seo />
+    <meta property="og:image:alt" content="@ImageAlt" data-seo />
+    <meta name="twitter:card" content="summary_large_image" data-seo />
+    <meta name="twitter:title" content="@Title" data-seo />
+    <meta name="twitter:description" content="@Description" data-seo />
+    <meta name="twitter:image" content="@ImageUrl" data-seo />
+    @if (StructuredData is not null)
+    {
+        @((MarkupString)$"<script type=\"application/ld+json\" data-seo>{Json(StructuredData)}</script>")
+    }
+</HeadContent>
+
+@code {
+    /// <summary>The page's own title; " | Halgoworks" is added for the browser tab and search results.</summary>
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    [Parameter, EditorRequired] public string Description { get; set; } = "";
+
+    /// <summary>The page's path without query string, like "knapsack"; "" for home. Share links all point here.</summary>
+    [Parameter] public string Path { get; set; } = "";
+
+    /// <summary>Preview image under wwwroot/og, 1200 × 630.</summary>
+    [Parameter] public string Image { get; set; } = "home";
+
+    [Parameter] public string ImageAlt { get; set; } = "Halgoworks: optimization algorithms, visualized step by step";
+
+    [Parameter] public bool NoIndex { get; set; }
+
+    /// <summary>A schema.org object, serialized as JSON-LD.</summary>
+    [Parameter] public object? StructuredData { get; set; }
+
+    private string FullTitle => Title.StartsWith("Halgoworks", StringComparison.Ordinal) ? Title : $"{Title} | Halgoworks";
+
+    public string Url => Nav.BaseUri + Path;
+
+    private string ImageUrl => $"{Nav.BaseUri}og/{Image}.png";
+
+    // Escape "<" so no string in the data can close the script element early.
+    private static string Json(object data) => JsonSerializer.Serialize(data).Replace("<", "\\u003c", StringComparison.Ordinal);
+
+    /// <summary>Structured data for a lab page: an interactive, free learning resource that's part of the site.</summary>
+    public static object LabData(NavigationManager nav, ProblemInfo problem) => new Dictionary<string, object>
+    {
+        ["@context"] = "https://schema.org",
+        ["@type"] = "LearningResource",
+        ["name"] = problem.SeoTitle,
+        ["description"] = problem.SeoDescription,
+        ["url"] = nav.BaseUri + problem.Slug,
+        ["image"] = $"{nav.BaseUri}og/{problem.Slug}.png",
+        ["inLanguage"] = "en",
+        ["isAccessibleForFree"] = true,
+        ["learningResourceType"] = "Interactive visualization",
+        ["educationalLevel"] = "Undergraduate",
+        ["teaches"] = problem.Teaches,
+        ["isPartOf"] = new Dictionary<string, object> { ["@type"] = "WebSite", ["name"] = "Halgoworks", ["url"] = nav.BaseUri },
+    };
+}

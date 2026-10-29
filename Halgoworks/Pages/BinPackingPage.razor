@@ -1,25 +1,47 @@
+@using Halgoworks.Core.Ip
 @page "/bin-packing"
 @using Halgoworks.Core.BinPacking
 @using Halgoworks.Components.BinPacking
 @implements IDisposable
+@inject NavigationManager Nav
 
-<PageTitle>Bin packing | Halgoworks</PageTitle>
+<SeoHead Title="@Problems.BinPacking.SeoTitle" Description="@Problems.BinPacking.SeoDescription" Path="@Problems.BinPacking.Slug" Image="@Problems.BinPacking.Slug"
+         ImageAlt="@($"{Problems.BinPacking.Name} lab in Halgoworks")" StructuredData="SeoHead.LabData(Nav, Problems.BinPacking)" />
 
 <div class="page">
     <LabHeader Problem="Problems.BinPacking" />
+    <ShareNotice Problem="@_shareProblem" />
 
     <section class="lab" aria-label="Bin packing lab">
         <div class="toolbar">
             <div class="field">
-                <span>Algorithm</span>
-                <Segmented T="BinRule" Options="RuleOptions" Value="_rule" ValueChanged="SetRule" Label="Algorithm" />
+                <span>Mode</span>
+                <Segmented T="string" Options="LabModes.WithPlay" Value="_mode" ValueChanged="SetMode" Label="Mode" />
             </div>
+            @if (_mode == LabModes.Watch)
+            {
+            <div class="field">
+                <span>Algorithm</span>
+                <Segmented T="string" Options="MethodOptions" Value="@(_ip ? "ip" : _rule.ToString())" ValueChanged="SetMethod" Label="Algorithm" />
+            </div>
+            }
+            @if (_mode != LabModes.Scale)
+            {
             <label class="field">
                 <span>Example</span>
                 <select value="@_preset" @onchange="SetPreset">
+                    @if (_preset == "shared")
+                    {
+                        <option value="shared">Shared example</option>
+                    }
+                    @if (_preset == "custom")
+                    {
+                        <option value="custom">Your edited example</option>
+                    }
                     <option value="random">Random items</option>
                     <option value="small">Small items first</option>
                     <option value="cloud">Cloud servers (GB)</option>
+                    <option value="six">Six items (for the integer program)</option>
                 </select>
             </label>
             @if (_preset == "random")
@@ -34,16 +56,52 @@
                 </label>
                 <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New items</button>
             }
+            }
             <span class="spacer"></span>
+            @if (_mode == LabModes.Watch)
+            {
+                <label class="check"><input type="checkbox" checked="@_editing" @onchange="e => _editing = e.Value is true" />Edit</label>
+            }
+            <ShareButton Url="ShareLink" />
+            @if (_mode == LabModes.Watch)
+            {
             <div class="field">
                 <span>View</span>
                 <Segmented T="bool" Options="Views" Value="_view3d" ValueChanged="v => _view3d = v" Label="View" />
             </div>
+            }
         </div>
 
+        @if (_mode == LabModes.Race)
+        {
+            <BinPackingRace Instance="_instance" Version="_version" Selected="RaceKeys" SelectedChanged="v => _raceState = string.Join(',', v)" />
+        }
+        else if (_mode == LabModes.Scale)
+        {
+            <BinPackingScale State="@_scaleState" StateChanged="v => _scaleState = v" />
+        }
+        else if (_mode == LabModes.Play)
+        {
+            <div class="lab-body">
+                <BinPackingPlay Instance="_instance" State="@_playState" StateChanged="v => _playState = v" />
+            </div>
+        }
+        else
+        {
         <div class="lab-body">
             <div class="stage">
                 <div class="stage-head">
+                    @if (_ip)
+                    {
+                        <ul class="legend">
+                            <li><span class="swatch" style="background: @Palette.Series[0]"></span>Item placed in that bin</li>
+                            <li><span class="swatch" style="background: #8a6a2c"></span>Fractional: split across bins in the relaxation</li>
+                            <li><span class="swatch" style="border: 1px dashed @Palette.Text2"></span>Fixed by branching</li>
+                            <li><span class="swatch" style="background: @Palette.Good"></span>Best whole packing</li>
+                        </ul>
+                    }
+                    else
+                    {
                     <ul class="legend">
                         <li><span class="swatch" style="background: @Palette.SizeClass[0]"></span>Small: up to a third of a bin</li>
                         <li><span class="swatch" style="background: @Palette.SizeClass[1]"></span>Medium: up to half</li>
@@ -52,9 +110,22 @@
                         <li><span style="color: @Palette.BadText; font-weight: 700">✗</span>too full</li>
                         <li><span class="swatch ring"></span>chosen</li>
                     </ul>
+                    }
                 </div>
                 <div class="stage-body">
-                    @if (_view3d)
+                    @if (_ip && _ipModel is null)
+                    {
+                        <div class="note">
+                            <strong>Too many items for this view</strong>
+                            The integer program has a variable for every item-bin pair, so it gets unreadable fast. It works on up to @MaxIpItems items; this example has @_instance.Items.Count.
+                            <div style="margin-top: 12px"><button type="button" class="btn" @onclick="UseSix">Use the six-item example</button></div>
+                        </div>
+                    }
+                    else if (_ip)
+                    {
+                        <IpView Model="_ipModel!" Step="IpCurrent" Layout="_ipSteps[^1].Tree" Bins="_instance" />
+                    }
+                    else if (_view3d)
                     {
                         <Scene3D Kind="bins" State="SceneState" Version="_version * 100000 + _player.Index" Label="Bins as glass containers with items stacked inside" />
                     }
@@ -64,9 +135,17 @@
                     }
                 </div>
             </div>
-            <StepPanel Step="Step" Algorithm="BinPackingSolver.Info(_rule)" Index="_player.Index" Count="_player.Count" />
+            @if (_editing)
+            {
+                <BinPackingEditor Instance="_instance" Changed="Edited" />
+            }
+            else
+            {
+                <StepPanel Step="@(_ip ? IpCurrent : Step)" Algorithm="@(_ip ? IntegerProgram.Info : BinPackingSolver.Info(_rule))" Index="_player.Index" Count="_player.Count" />
+            }
         </div>
         <PlaybackBar Player="_player" Marks="_marks" />
+        }
     </section>
 
     <div class="results">
@@ -105,7 +184,20 @@
         new(BinRule.BestFitDecreasing, "BFD", Hint: "Best fit decreasing"),
     ];
 
-    private static readonly IReadOnlyList<SegOption<bool>> Views = [new(false, "2D"), new(true, "3D")];
+    private static readonly IReadOnlyList<SegOption<string>> MethodOptions =
+        [.. RuleOptions.Select(o => new SegOption<string>(o.Value.ToString(), o.Text, Hint: o.Hint)), new("ip", "Integer program")];
+
+    private const int MaxIpItems = 7;
+
+    private IReadOnlyList<SegOption<bool>> Views => [new(false, "2D"), new(true, "3D", _ip, _ip ? "3D shows the heuristics" : null)];
+
+    private bool _ip;
+    private IpModel? _ipModel;
+    private IReadOnlyList<IpStep> _ipSteps = [];
+
+    private IpStep IpCurrent => _ipSteps.Count == 0
+        ? new IpStep { Title = "Too many items", Text = $"Pick an example with at most {MaxIpItems} items to see its integer program.", Phase = "Model" }
+        : _ipSteps[Math.Min(_player.Index, _ipSteps.Count - 1)];
 
     private readonly Player _player = new();
     private BinRule _rule = BinRule.FirstFit;
@@ -129,13 +221,76 @@
     private BinPackingStep _final => _steps[^1];
     private string Unit => _instance.Unit.Length == 0 ? "" : $" {_instance.Unit}";
 
+    [SupplyParameterFromQuery(Name = "i")] public string? SharedInstance { get; set; }
+    [SupplyParameterFromQuery(Name = "a")] public string? SharedAlgorithm { get; set; }
+    [SupplyParameterFromQuery(Name = "s")] public int? SharedStep { get; set; }
+    [SupplyParameterFromQuery(Name = "v")] public string? SharedView { get; set; }
+    [SupplyParameterFromQuery(Name = "m")] public string? SharedMode { get; set; }
+    [SupplyParameterFromQuery(Name = "p")] public string? SharedPlay { get; set; }
+
+    private string _mode = LabModes.Watch;
+    private string? _playState;
+    private string? _raceState;
+    private string? _scaleState;
+
+    private IReadOnlyList<string>? RaceKeys => _raceState?.Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+    // Whatever the current mode keeps in share links: moves in Play, racers in Race, size and seed in Scale.
+    private string? ModeState()
+    {
+        var state = _mode switch
+        {
+            LabModes.Play => _playState,
+            LabModes.Race => _raceState,
+            LabModes.Scale => _scaleState,
+            _ => null,
+        };
+        return string.IsNullOrEmpty(state) ? null : state;
+    }
+    private bool _editing;
+    private string? _shareProblem;
+
     protected override void OnInitialized()
     {
         _player.Changed += OnPlayerChanged;
+        if (SharedInstance is not null && ShareState.Decode<BinPackingInstance>(SharedInstance, InstanceChecks.Check, out _shareProblem) is { } shared)
+        {
+            _instance = shared;
+            _preset = "shared";
+        }
+
+        if (Enum.TryParse<BinRule>(SharedAlgorithm, out var rule) && Enum.IsDefined(rule)) _rule = rule;
+        _ip = SharedAlgorithm == "ip";
+        _view3d = SharedView == "3d";
+        _mode = LabModes.Parse(SharedMode);
+        _playState = _mode == LabModes.Play ? SharedPlay : null;
+        _raceState = _mode == LabModes.Race ? SharedPlay : null;
+        _scaleState = _mode == LabModes.Scale ? SharedPlay : null;
         Rebuild(newInstance: true);
+        if (SharedStep is { } step) _player.Seek(step);
     }
 
     private void OnPlayerChanged() => InvokeAsync(StateHasChanged);
+
+    private string ShareLink() => ShareState.Link(Nav, "bin-packing",
+        ("i", ShareState.Encode(_instance)), ("a", _ip ? "ip" : _rule.ToString()), ("s", _player.Index.ToString(CultureInfo.InvariantCulture)), ("v", _view3d ? "3d" : null),
+        ("m", _mode == LabModes.Watch ? null : _mode), ("p", ModeState()));
+
+    private void SetMode(string mode)
+    {
+        _mode = mode;
+        _editing = false;
+        _player.Pause();
+    }
+
+    // Edits become a custom example; the trace jumps to the end so the new result is visible at once.
+    private void Edited(BinPackingInstance instance)
+    {
+        _instance = instance with { Name = "Your edited example" };
+        _preset = "custom";
+        Rebuild(newInstance: true);
+        _player.Last();
+    }
 
     private void Rebuild(bool newInstance)
     {
@@ -143,8 +298,10 @@
         {
             _instance = _preset switch
             {
+                "shared" or "custom" => _instance,
                 "small" => BinPackingInstances.SmallFirst(),
                 "cloud" => BinPackingInstances.CloudServers(),
+                "six" => BinPackingInstances.SixItems(),
                 _ => BinPackingInstances.Random(_count, _capacity, _seed),
             };
             _size = _instance.Items.ToDictionary(i => i.Id, i => i.Size);
@@ -157,6 +314,13 @@
         }
 
         _steps = BinPackingSolver.Trace(_instance, _rule);
+        _ipModel = null;
+        _ipSteps = [];
+        if (_ip && _instance.Items.Count <= MaxIpItems)
+        {
+            _ipModel = IntegerProgram.BinPacking(_instance).Model;
+            _ipSteps = IntegerProgram.Trace(_ipModel);
+        }
         _maxSlots = _steps.Max(s => s.Bins.Count + (s.Target == s.Bins.Count ? 1 : 0));
         _marks = Enumerable.Range(1, _steps.Count - 1).Where(i => _steps[i].Phase != _steps[i - 1].Phase).ToList();
         _compare = BinPackingSolver.Rules
@@ -164,17 +328,26 @@
             {
                 var bins = BinPackingSolver.Solve(_instance, rule).Count;
                 var note = _optimum is { } opt ? bins == opt ? "Optimal" : $"{bins - opt} more than optimal" : null;
-                return new BarDatum(BinPackingSolver.ShortName(rule), bins, $"{bins}", rule == _rule, note);
+                return new BarDatum(BinPackingSolver.ShortName(rule), bins, $"{bins}", rule == _rule && !_ip, note);
             })
             .ToList();
+        if (_ip) _marks = Enumerable.Range(1, Math.Max(0, _ipSteps.Count - 1)).Where(i => _ipSteps[i].Phase != _ipSteps[i - 1].Phase).ToList();
         _version++;
-        _player.Load(_steps.Count);
+        _player.Load(_ip ? Math.Max(1, _ipSteps.Count) : _steps.Count);
     }
 
-    private void SetRule(BinRule rule)
+    private void SetMethod(string method)
     {
-        _rule = rule;
+        _ip = method == "ip";
+        if (_ip) _view3d = false;
+        else _rule = Enum.Parse<BinRule>(method);
         Rebuild(newInstance: false);
+    }
+
+    private void UseSix()
+    {
+        _preset = "six";
+        Rebuild(newInstance: true);
     }
 
     private void SetPreset(ChangeEventArgs e)

@@ -1,22 +1,43 @@
+@using Halgoworks.Core.Ip
 @page "/knapsack"
 @using Halgoworks.Core.Knapsack
 @using Halgoworks.Components.Knapsack
 @implements IDisposable
+@inject NavigationManager Nav
 
-<PageTitle>Knapsack | Halgoworks</PageTitle>
+<SeoHead Title="@Problems.Knapsack.SeoTitle" Description="@Problems.Knapsack.SeoDescription" Path="@Problems.Knapsack.Slug" Image="@Problems.Knapsack.Slug"
+         ImageAlt="@($"{Problems.Knapsack.Name} lab in Halgoworks")" StructuredData="SeoHead.LabData(Nav, Problems.Knapsack)" />
 
 <div class="page">
     <LabHeader Problem="Problems.Knapsack" />
+    <ShareNotice Problem="@_shareProblem" />
 
     <section class="lab" aria-label="Knapsack lab">
         <div class="toolbar">
             <div class="field">
-                <span>Algorithm</span>
-                <Segmented T="string" Options="Algorithms" Value="_algorithm" ValueChanged="SetAlgorithm" Label="Algorithm" />
+                <span>Mode</span>
+                <Segmented T="string" Options="LabModes.WithPlay" Value="_mode" ValueChanged="SetMode" Label="Mode" />
             </div>
+            @if (_mode == LabModes.Watch)
+            {
+                <div class="field">
+                    <span>Algorithm</span>
+                    <Segmented T="string" Options="Algorithms" Value="_algorithm" ValueChanged="SetAlgorithm" Label="Algorithm" />
+                </div>
+            }
+            @if (_mode != LabModes.Scale)
+            {
             <label class="field">
                 <span>Example</span>
                 <select value="@_preset" @onchange="SetPreset">
+                    @if (_preset == "shared")
+                    {
+                        <option value="shared">Shared example</option>
+                    }
+                    @if (_preset == "custom")
+                    {
+                        <option value="custom">Your edited example</option>
+                    }
                     <option value="camping">Camping trip</option>
                     <option value="trap">Greedy trap</option>
                     <option value="random">Random items</option>
@@ -34,13 +55,38 @@
                 </label>
                 <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New items</button>
             }
+            }
             <span class="spacer"></span>
-            <div class="field">
-                <span>View</span>
-                <Segmented T="bool" Options="Views" Value="_view3d" ValueChanged="v => _view3d = v" Label="View" />
-            </div>
+            @if (_mode == LabModes.Watch)
+            {
+                <label class="check"><input type="checkbox" checked="@_editing" @onchange="e => _editing = e.Value is true" />Edit</label>
+            }
+            <ShareButton Url="ShareLink" />
+            @if (_mode == LabModes.Watch)
+            {
+                <div class="field">
+                    <span>View</span>
+                    <Segmented T="bool" Options="Views" Value="_view3d" ValueChanged="v => _view3d = v" Label="View" />
+                </div>
+            }
         </div>
 
+        @if (_mode == LabModes.Race)
+        {
+            <KnapsackRace Instance="_instance" Version="_version" Selected="RaceKeys" SelectedChanged="v => _raceState = string.Join(',', v)" />
+        }
+        else if (_mode == LabModes.Scale)
+        {
+            <KnapsackScale State="@_scaleState" StateChanged="v => _scaleState = v" />
+        }
+        else if (_mode == LabModes.Play)
+        {
+            <div class="lab-body">
+                <KnapsackPlay Instance="_instance" State="@_playState" StateChanged="v => _playState = v" />
+            </div>
+        }
+        else
+        {
         <div class="lab-body">
             <div class="stage">
                 <div class="stage-head">
@@ -49,6 +95,27 @@
                         <ul class="legend">
                             <li><span class="swatch" style="background: linear-gradient(90deg, @Palette.Ramp[1], @Palette.Ramp[^1])"></span>Best value for that capacity (brighter is higher)</li>
                             <li><span class="swatch ring"></span>Cell being decided</li>
+                        </ul>
+                    }
+                    else if (IsIp)
+                    {
+                        <ul class="legend">
+                            <li><span style="color: @Palette.Signal; font-weight: 700">0.6</span>Fractional value in the relaxation</li>
+                            <li><span class="swatch line" style="background: @Palette.Series[0]"></span>Branch x = 1</li>
+                            <li><span class="swatch line" style="background: @Palette.Text3"></span>Branch x = 0</li>
+                            <li><span class="swatch" style="background: @Palette.Good"></span>Best whole solution</li>
+                            <li><span class="swatch ring"></span>Node being solved</li>
+                        </ul>
+                    }
+                    else if (IsBnb)
+                    {
+                        <ul class="legend">
+                            <li><span class="swatch line" style="background: @Palette.Series[0]"></span>Take the item</li>
+                            <li><span class="swatch line" style="background: @Palette.Text3"></span>Skip it</li>
+                            <li><span class="swatch" style="background: @Palette.Good"></span>Best packing so far</li>
+                            <li><span class="swatch" style="border: 1px dashed @Palette.Text3"></span>Cut: can't win</li>
+                            <li><span style="color: @Palette.BadText; font-weight: 700">✗</span>Cut: too heavy</li>
+                            <li><span class="swatch ring"></span>Node being examined</li>
                         </ul>
                     }
                     else
@@ -82,6 +149,19 @@
                         <KnapsackTable Instance="_instance" Step="Step" MaxValue="_maxValue" />
                         <KnapsackItems Instance="_instance" Step="Step" />
                     }
+                    else if (IsIp)
+                    {
+                        <IpView Model="_ipModel!" Step="IpCurrent" Layout="_ipSteps[^1].Tree" Knapsack="_instance" />
+                    }
+                    else if (IsBnb)
+                    {
+                        <p class="tree-stats">
+                            Nodes explored: <strong class="num">@Step.Tree.Count</strong> of @(((1L << (_instance.Items.Count + 1)) - 1).ToString("#,0", CultureInfo.InvariantCulture)) in the full decision tree.
+                            Each level decides one item, densest first.
+                        </p>
+                        <SearchTreeView Tree="Step.Tree" Layout="_steps[^1].Tree" FocusNode="Step.FocusNode" BestNode="Step.BestNode" />
+                        <KnapsackItems Instance="_instance" Step="Step" ShowDensity="true" />
+                    }
                     else
                     {
                         <KnapsackItems Instance="_instance" Step="Step" ShowDensity="true" />
@@ -89,15 +169,23 @@
                     }
                 </div>
             </div>
-            <StepPanel Step="Step" Algorithm="Info" Index="_player.Index" Count="_player.Count" />
+            @if (_editing)
+            {
+                <KnapsackEditor Instance="_instance" Changed="Edited" />
+            }
+            else
+            {
+                <StepPanel Step="Current" Algorithm="Info" Index="_player.Index" Count="_player.Count" />
+            }
         </div>
         <PlaybackBar Player="_player" Marks="_marks" />
+        }
     </section>
 
     <div class="results">
         <section class="panel" aria-labelledby="kn-compare">
             <h2 class="panel-title" id="kn-compare">Exact versus greedy on these items</h2>
-            <p class="panel-sub">Total value packed by each approach. Greedy rules are fast but can miss; dynamic programming always finds the best.</p>
+            <p class="panel-sub">Total value packed by each approach. Greedy rules are fast but can miss; dynamic programming and branch and bound always find the best.</p>
             <div class="panel-body">
                 <BarChart Data="_compare" AriaLabel="Value packed by each approach" />
             </div>
@@ -123,6 +211,8 @@
     private static readonly IReadOnlyList<SegOption<string>> Algorithms =
     [
         new("dp", "Dynamic programming"),
+        new("bnb", "Branch and bound"),
+        new("ip", "Integer program"),
         new("greedy", "Greedy"),
     ];
 
@@ -149,16 +239,91 @@
     private int _maxValue;
 
     private bool IsDp => _algorithm == "dp";
-    private KnapsackStep Step => _steps[Math.Min(_player.Index, _steps.Count - 1)];
-    private AlgorithmInfo Info => IsDp ? KnapsackSolver.DynamicProgramming : KnapsackSolver.Greedy;
+    private static readonly KnapsackStep Empty = new();
+    private KnapsackStep Step => _steps.Count == 0 ? Empty : _steps[Math.Min(_player.Index, _steps.Count - 1)];
+    private IpModel? _ipModel;
+    private IReadOnlyList<IpStep> _ipSteps = [];
+    private bool IsIp => _algorithm == "ip";
+    private IpStep IpCurrent => _ipSteps[Math.Min(_player.Index, _ipSteps.Count - 1)];
+    private Halgoworks.Core.Step Current => IsIp ? IpCurrent : Step;
+    private bool IsBnb => _algorithm == "bnb";
+    private AlgorithmInfo Info => _algorithm switch
+    {
+        "bnb" => KnapsackBranchAndBound.Info,
+        "ip" => IntegerProgram.Info,
+        "greedy" => KnapsackSolver.Greedy,
+        _ => KnapsackSolver.DynamicProgramming,
+    };
+
+    [SupplyParameterFromQuery(Name = "i")] public string? SharedInstance { get; set; }
+    [SupplyParameterFromQuery(Name = "a")] public string? SharedAlgorithm { get; set; }
+    [SupplyParameterFromQuery(Name = "s")] public int? SharedStep { get; set; }
+    [SupplyParameterFromQuery(Name = "v")] public string? SharedView { get; set; }
+    [SupplyParameterFromQuery(Name = "m")] public string? SharedMode { get; set; }
+    [SupplyParameterFromQuery(Name = "p")] public string? SharedPlay { get; set; }
+
+    private string _mode = LabModes.Watch;
+    private string? _playState;
+    private string? _raceState;
+    private string? _scaleState;
+
+    private IReadOnlyList<string>? RaceKeys => _raceState?.Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+    // Whatever the current mode keeps in share links: moves in Play, racers in Race, size and seed in Scale.
+    private string? ModeState()
+    {
+        var state = _mode switch
+        {
+            LabModes.Play => _playState,
+            LabModes.Race => _raceState,
+            LabModes.Scale => _scaleState,
+            _ => null,
+        };
+        return string.IsNullOrEmpty(state) ? null : state;
+    }
+    private bool _editing;
+    private string? _shareProblem;
 
     protected override void OnInitialized()
     {
         _player.Changed += OnPlayerChanged;
+        if (SharedInstance is not null && ShareState.Decode<KnapsackInstance>(SharedInstance, InstanceChecks.Check, out _shareProblem) is { } shared)
+        {
+            _instance = shared;
+            _preset = "shared";
+        }
+
+        if (SharedAlgorithm is "dp" or "bnb" or "greedy" or "ip") _algorithm = SharedAlgorithm;
+        _view3d = SharedView == "3d" && IsDp;
+        _mode = LabModes.Parse(SharedMode);
+        _playState = _mode == LabModes.Play ? SharedPlay : null;
+        _raceState = _mode == LabModes.Race ? SharedPlay : null;
+        _scaleState = _mode == LabModes.Scale ? SharedPlay : null;
         Rebuild(newInstance: true);
+        if (SharedStep is { } step) _player.Seek(step);
     }
 
     private void OnPlayerChanged() => InvokeAsync(StateHasChanged);
+
+    private string ShareLink() => ShareState.Link(Nav, "knapsack",
+        ("i", ShareState.Encode(_instance)), ("a", _algorithm), ("s", _player.Index.ToString(CultureInfo.InvariantCulture)), ("v", _view3d ? "3d" : null),
+        ("m", _mode == LabModes.Watch ? null : _mode), ("p", ModeState()));
+
+    private void SetMode(string mode)
+    {
+        _mode = mode;
+        _editing = false;
+        _player.Pause();
+    }
+
+    // Edits become a custom example; the trace jumps to the end so the new result is visible at once.
+    private void Edited(KnapsackInstance instance)
+    {
+        _instance = instance with { Name = "Your edited example" };
+        _preset = "custom";
+        Rebuild(newInstance: true);
+        _player.Last();
+    }
 
     private void Rebuild(bool newInstance)
     {
@@ -166,6 +331,7 @@
         {
             _instance = _preset switch
             {
+                "shared" or "custom" => _instance,
                 "trap" => KnapsackInstances.GreedyTrap(),
                 "random" => KnapsackInstances.Random(_count, _capacity, _seed),
                 _ => KnapsackInstances.Camping(),
@@ -173,18 +339,31 @@
             _optimum = KnapsackSolver.Solve(_instance);
         }
 
-        _steps = KnapsackSolver.Trace(_instance, _algorithm);
-        _marks = Enumerable.Range(1, _steps.Count - 1).Where(i => _steps[i].Phase != _steps[i - 1].Phase).ToList();
+        IReadOnlyList<Halgoworks.Core.Step> active;
+        if (IsIp)
+        {
+            _ipModel = IntegerProgram.Knapsack(_instance);
+            _ipSteps = IntegerProgram.Trace(_ipModel, j => $"x{IntegerProgram.Sub(j + 1)} ({_instance.Items[j].Name.ToLowerInvariant()})");
+            active = _ipSteps;
+        }
+        else
+        {
+            _steps = KnapsackSolver.Trace(_instance, _algorithm);
+            active = _steps;
+        }
+
+        _marks = Enumerable.Range(1, active.Count - 1).Where(i => active[i].Phase != active[i - 1].Phase).ToList();
         _maxValue = _optimum.Value;
         _compare =
         [
             new("Dynamic programming", _optimum.Value, $"{_optimum.Value}", IsDp, "Optimal"),
-            Greedy("Greedy by value per kg", GreedyOrder.Density, !IsDp),
+            new("Branch and bound", _optimum.Value, $"{_optimum.Value}", IsBnb, "Optimal, proven by search"),
+            Greedy("Greedy by value per kg", GreedyOrder.Density, _algorithm == "greedy"),
             Greedy("Greedy by value", GreedyOrder.Value, false),
             Greedy("Greedy by lightest", GreedyOrder.Lightest, false),
         ];
         _version++;
-        _player.Load(_steps.Count);
+        _player.Load(active.Count);
     }
 
     private BarDatum Greedy(string label, GreedyOrder order, bool highlight)

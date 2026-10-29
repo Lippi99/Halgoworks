@@ -1,0 +1,33 @@
+@using Halgoworks.Core.Vrp
+
+<RaceView TStep="VrpStep" Entries="Entries" Build="Build" Version="Version" ScoreLabel="Distance" LowerIsBetter="true"
+          Format="@(v => $"{Num.F1(v)} km")" Selected="Selected" SelectedChanged="SelectedChanged">
+    <Lane>
+        <VrpMap Instance="Instance" Step="context.Step" Reduced="true" />
+    </Lane>
+</RaceView>
+
+@code {
+    [Parameter, EditorRequired] public VrpInstance Instance { get; set; } = default!;
+    [Parameter] public bool Polish { get; set; }
+    [Parameter] public int Version { get; set; }
+    [Parameter] public IReadOnlyList<string>? Selected { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<string>> SelectedChanged { get; set; }
+
+    private static readonly IReadOnlyList<RaceEntry> Entries =
+    [
+        new(nameof(VrpAlgorithm.Savings), "Clarke–Wright savings"),
+        new(nameof(VrpAlgorithm.Sweep), "Sweep"),
+        new(nameof(VrpAlgorithm.NearestNeighbor), "Nearest neighbor"),
+        new(nameof(VrpAlgorithm.SimulatedAnnealing), "Simulated annealing"),
+        new(nameof(VrpAlgorithm.Genetic), "Genetic algorithm"),
+    ];
+
+    private RaceLane<VrpStep> Build(string key)
+    {
+        var algorithm = Enum.Parse<VrpAlgorithm>(key);
+        var name = Entries.First(e => e.Key == key).Name + (Polish && !VrpSolver.IsMetaheuristic(algorithm) ? " + 2-opt" : "");
+        // A plan that hasn't placed every customer yet has no meaningful total, so the score waits.
+        return new RaceLane<VrpStep>(key, name, VrpSolver.Trace(Instance, algorithm, Polish), s => s.Pending.Count == 0 && s.Routes.Count > 0 ? s.Distance : null);
+    }
+}

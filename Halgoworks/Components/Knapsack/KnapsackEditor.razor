@@ -1,0 +1,53 @@
+@using Halgoworks.Core.Knapsack
+
+<aside class="side edit-panel" aria-label="Edit the example">
+    <div class="side-section">
+        <div class="step-meta"><span class="step-phase">Editing</span></div>
+        <h2 class="step-title">Make it your own</h2>
+        <p class="edit-hint" style="margin-top: 8px">Every change re-runs the algorithm; the view jumps to its result. Turn off "Edit" to step through it again.</p>
+    </div>
+    <div class="side-section">
+        <div class="edit-row">
+            <span>Capacity</span>
+            <Stepper Value="Instance.Capacity" Min="1" Max="40" Label="capacity" Format="@(v => $"{v} kg")" ValueChanged="v => Changed.InvokeAsync(Instance with { Capacity = v })" />
+        </div>
+    </div>
+    <div class="side-section">
+        <h3>Items</h3>
+        @foreach (var item in Instance.Items)
+        {
+            <div class="edit-row">
+                <span>@item.Icon @item.Name</span>
+                <Stepper Value="item.Weight" Min="1" Max="40" Label="@($"{item.Name} weight")" Format="@(v => $"{v} kg")" ValueChanged="v => Update(item with { Weight = v })" />
+                <Stepper Value="item.Value" Min="0" Max="999" Label="@($"{item.Name} value")" ValueChanged="v => Update(item with { Value = v })" />
+                <button type="button" class="btn small" aria-label="@($"Remove {item.Name}")" disabled="@(Instance.Items.Count <= 1)" @onclick="() => Remove(item.Id)">×</button>
+            </div>
+        }
+        <div class="play-actions">
+            <button type="button" class="btn small" disabled="@(Instance.Items.Count >= 12)" @onclick="Add">Add an item</button>
+        </div>
+    </div>
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public KnapsackInstance Instance { get; set; } = default!;
+    [Parameter] public EventCallback<KnapsackInstance> Changed { get; set; }
+
+    private static readonly (string Name, string Icon)[] Extras =
+        [("Book", "📕"), ("Snacks", "🍫"), ("Rope", "🪢"), ("Radio", "📻"), ("Hat", "🧢"), ("Gloves", "🧤"), ("Binoculars", "🔭"), ("Knife", "🔪")];
+
+    private Task Update(KnapsackItem item) =>
+        Changed.InvokeAsync(Instance with { Items = Instance.Items.Select(i => i.Id == item.Id ? item : i).ToList() });
+
+    private Task Remove(int id) =>
+        Changed.InvokeAsync(Instance with { Items = Instance.Items.Where(i => i.Id != id).Select((i, k) => i with { Id = k }).ToList() });
+
+    private Task Add()
+    {
+        var used = Instance.Items.Select(i => i.Name).ToHashSet();
+        var extra = Extras.FirstOrDefault(e => !used.Contains(e.Name));
+        var (name, icon) = extra.Name is null ? ($"Item {Instance.Items.Count + 1}", "📦") : extra;
+        var item = new KnapsackItem(Instance.Items.Count, name, icon, Math.Max(1, Instance.Capacity / 4), 10);
+        return Changed.InvokeAsync(Instance with { Items = [.. Instance.Items, item] });
+    }
+}

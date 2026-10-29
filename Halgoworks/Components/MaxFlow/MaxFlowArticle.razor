@@ -87,6 +87,25 @@
         </p>
     </section>
 
+    <section id="push-relabel">
+        <h2>Push–relabel: a different idea</h2>
+        <p>
+            Augmenting-path methods keep a valid flow at all times and grow it path by path. Push–relabel, by Andrew Goldberg and Robert Tarjan, does the
+            opposite. It starts by flooding every pipe out of <i>s</i>, which overloads the nodes behind them, and then repairs the overload locally. For a
+            while it holds a <strong>preflow</strong>: nodes may receive more than they send, and that surplus is their <strong>excess</strong>.
+        </p>
+        <p>
+            Each node also has a <strong>height</strong>. Flow may only run downhill, from a node to a neighbor exactly one level lower, through an arc with
+            spare room. A node with excess and no such arc gets <strong>relabeled</strong>: lifted to one above its lowest reachable neighbor. The source starts
+            at a height equal to the number of nodes, so excess that can't reach <i>t</i> eventually climbs high enough to drain back to <i>s</i>.
+            When no node holds excess, the preflow is a maximum flow.
+        </p>
+        <p>
+            Every operation looks at one node and its neighbors, which is why push–relabel parallelizes well and is the workhorse of fast solvers.
+            Pick it in the lab and switch to "3D heights" to watch nodes rise and flow pour down the slopes.
+        </p>
+    </section>
+
     <section id="beyond">
         <h2>Beyond this lab</h2>
         <ul>
@@ -116,6 +135,7 @@
         ("hard", "Why this one is easy"),
         ("structures", "Data structures"),
         ("algorithms", "The algorithms"),
+        ("push-relabel", "Push–relabel"),
         ("beyond", "Beyond this lab"),
         ("history", "A little history"),
     ];

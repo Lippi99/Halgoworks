@@ -26,6 +26,7 @@ public enum FlowAlgorithm
     EdmondsKarp,
     FordFulkerson,
     Dinic,
+    PushRelabel,
 }
 
 public sealed record MaxFlowStep : Step
@@ -59,6 +60,11 @@ public sealed record MaxFlowStep : Step
 
     /// <summary>Dinic's BFS levels (-1 when unreachable).</summary>
     public IReadOnlyList<int>? Level { get; init; }
+
+    /// <summary>Push–relabel: each node's height and the excess flow it is holding.</summary>
+    public IReadOnlyList<int>? Height { get; init; }
+
+    public IReadOnlyList<int>? Excess { get; init; }
 
     public int Augmentations { get; init; }
 }

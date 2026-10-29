@@ -91,11 +91,38 @@
         </p>
     </section>
 
+    <section id="metaheuristics">
+        <h2>Metaheuristics</h2>
+        <p>
+            Construction heuristics build one plan and stop. Metaheuristics keep searching, trading time for quality. The lab includes two of the classics.
+        </p>
+        <h3>Simulated annealing</h3>
+        <p>
+            Start from any plan, here a quick nearest-neighbor one, and repeatedly try a small random change. The moves span both trucks and stops:
+            <strong>relocate</strong> a customer to another spot or truck, <strong>swap</strong> two customers between trucks, <strong>2-opt*</strong>
+            (exchange the ends of two routes) and <strong>2-opt</strong> (reverse a stretch of one route). A change that breaks capacity or a deadline is thrown away.
+            Shorter plans are always kept; a plan that is Δ km longer is kept with probability <i>e</i><sup>−Δ/<i>T</i></sup>. The temperature <i>T</i> starts high,
+            so early on the search wanders freely, and cools geometrically until only improvements get through. The name comes from metallurgy: cooling metal
+            slowly lets its atoms settle into a low-energy arrangement.
+        </p>
+        <h3>Genetic algorithm</h3>
+        <p>
+            Instead of one plan, keep a population. Each individual is a single visiting order, a "giant tour" through every customer, with no trucks at all.
+            Christian Prins' <strong>split</strong> procedure turns an order into the best possible set of routes: it treats every way of cutting the order into
+            consecutive feasible routes as a path in a small graph and finds the shortest one by dynamic programming. Children are made by <strong>order crossover</strong>
+            (copy a slice from one parent, fill in the rest in the other parent's order) and a little <strong>mutation</strong>, and fitter parents are chosen more often.
+            The best two plans always survive, so the best distance never gets worse.
+        </p>
+        <p>
+            Both are seeded, so the same map always plays back identically, which keeps share links reproducible. Neither proves optimality, but on these maps they
+            usually beat every construction heuristic.
+        </p>
+    </section>
+
     <section id="beyond">
         <h2>Beyond this lab</h2>
         <ul>
-            <li><strong>Metaheuristics.</strong> Tabu search, simulated annealing and especially large neighborhood search (destroy part of the solution, rebuild it better) power most commercial routing engines. Hybrid genetic search by Vidal and colleagues is among the strongest published methods.</li>
-            <li><strong>Moves between routes.</strong> Relocate a customer to another truck, swap customers between trucks, or exchange the tails of two routes (2-opt*). They fix what intra-route 2-opt can't.</li>
+            <li><strong>Stronger metaheuristics.</strong> Tabu search and especially large neighborhood search (destroy part of the solution, rebuild it better) power most commercial routing engines. Hybrid genetic search by Vidal and colleagues, a genetic algorithm with local search on every child, is among the strongest published methods.</li>
             <li><strong>Variants.</strong> Time windows (VRPTW), several depots, pickup and delivery, mixed fleets, electric trucks that need charging stops, and dynamic routing, where orders arrive during the day.</li>
             <li><strong>Libraries.</strong> Google OR-Tools, VROOM and PyVRP solve real instances with these techniques.</li>
         </ul>
@@ -119,6 +146,7 @@
         ("hard", "Why it's hard"),
         ("structures", "Data structures"),
         ("algorithms", "The algorithms"),
+        ("metaheuristics", "Metaheuristics"),
         ("beyond", "Beyond this lab"),
         ("history", "A little history"),
     ];

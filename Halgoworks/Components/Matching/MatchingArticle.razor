@@ -1,0 +1,112 @@
+<ArticleLayout Sections="Sections" Path="matching">
+    <section id="problem">
+        <h2>The problem</h2>
+        <p>
+            Two groups, and a list of which members of one may be paired with members of the other: developers and the tickets they know how to fix,
+            nurses and the shifts they can work, students and the projects they qualify for. Pair up as many as possible, with nobody in either group used twice.
+            That's <strong>maximum bipartite matching</strong>: "bipartite" because every allowed pair crosses between the two groups.
+        </p>
+        <p>
+            It shows up wherever one-to-one assignments are made: assigning jobs to machines, ads to slots, reviewers to papers, or drivers to riders in a
+            single round of a ride-hailing app. Weighted versions, where each pair has a value or cost, solve assignment problems in logistics and staffing.
+        </p>
+    </section>
+
+    <section id="disguise">
+        <h2>A flow problem in disguise</h2>
+        <p>
+            Add a <strong>source</strong> with a pipe to every member of the left group, a <strong>sink</strong> with a pipe from every member of the right group,
+            and turn each allowed pair into a pipe from left to right. Give every pipe capacity 1.
+        </p>
+        <div class="formula" aria-label="the reduction">
+            <div class="row"><span>source → left</span><span>capacity 1: each left member is used at most once</span></div>
+            <div class="row"><span>left → right</span><span>capacity 1, one pipe per allowed pair</span></div>
+            <div class="row"><span>right → sink</span><span>capacity 1: each right member is used at most once</span></div>
+        </div>
+        <p>
+            Every unit of flow travels source → someone → someone → sink, which is exactly one matched pair, and the capacities stop anyone being used twice.
+            Because capacities are whole numbers, some maximum flow is whole too, so <strong>the maximum flow equals the maximum matching</strong>. Switch the lab to
+            "Flow network" to watch the very same steps as pipes. This trick of solving a new problem by translating it into one you already know is called a
+            <strong>reduction</strong>, and it's one of the most useful ideas in algorithms.
+        </p>
+    </section>
+
+    <section id="paths">
+        <h2>Augmenting paths, in matching terms</h2>
+        <p>
+            In the flow network an augmenting path may use backward arcs, which cancel flow sent earlier. Translated back, the path <strong>alternates</strong>:
+            it adds a new pair, undoes an existing one, adds another, and so on, starting and ending at people who are still free. Flipping every pair on it
+            matches one more pair than before. In the lab, added pairs are amber and undone ones are dashed red.
+        </p>
+        <p>
+            That's exactly what greedy can't do. Greedy grabs the first allowed pair it sees and never reconsiders, so an early choice can block a better
+            arrangement. The "Greedy trap" example is built for that: greedy matches three students, while rerouting finds a place for all four.
+        </p>
+        <p>
+            Why stop when no path exists? Claude Berge proved in 1957 that a matching is maximum exactly when no augmenting path exists. In the flow picture, the
+            minimum cut also gives a certificate: Kőnig's theorem says the size of a maximum matching equals the size of the smallest set of people that touches
+            every allowed pair.
+        </p>
+    </section>
+
+    <section id="structures">
+        <h2>Data structures</h2>
+        <ul>
+            <li><strong>Adjacency lists</strong> for the allowed pairs, so the search scans only real options.</li>
+            <li><strong>A match array per side</strong>: <code>partner[left]</code> and <code>partner[right]</code>, −1 when free. Dedicated matching code skips the flow network and walks these arrays directly; following a path means hopping between them.</li>
+            <li><strong>A queue or stack</strong> for the search, and a visited flag per node so each search is linear in the size of the graph.</li>
+        </ul>
+    </section>
+
+    <section id="algorithms">
+        <h2>The algorithms</h2>
+        <table class="compare-table">
+            <thead>
+                <tr><th>Algorithm</th><th>Idea</th><th>Time</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Augmenting paths</td><td>One path per new pair (Ford–Fulkerson, Edmonds–Karp)</td><td><i>O</i>(<i>V</i> · <i>E</i>)</td></tr>
+                <tr><td>Hopcroft–Karp</td><td>Many shortest paths per phase, like Dinic</td><td><i>O</i>(<i>E</i> √<i>V</i>)</td></tr>
+                <tr><td>Hungarian method</td><td>Weighted pairs: cheapest perfect assignment</td><td><i>O</i>(<i>n</i>³)</td></tr>
+                <tr><td>Greedy</td><td>Take free pairs in order</td><td><i>O</i>(<i>E</i>), at least half the maximum</td></tr>
+            </tbody>
+        </table>
+        <p>
+            Every matching path adds one pair, so at most min(left, right) paths are ever needed: that's why the plain augmenting-path method is already
+            polynomial here, without the worries about capacities that affect general max flow. Dinic's algorithm on this unit-capacity network is the same
+            idea as Hopcroft–Karp.
+        </p>
+    </section>
+
+    <section id="beyond">
+        <h2>Beyond this lab</h2>
+        <ul>
+            <li><strong>Weighted matching.</strong> When pairs have different values, the Hungarian method or min-cost flow finds the best total, not just the most pairs.</li>
+            <li><strong>Stable matching.</strong> When both sides have preferences, Gale and Shapley's deferred acceptance finds pairings nobody wants to break. Variants assign medical residents to hospitals and students to schools.</li>
+            <li><strong>General graphs.</strong> When anyone can pair with anyone, as in kidney exchanges or roommate assignment, odd cycles break the simple path argument, and Edmonds' blossom algorithm is needed.</li>
+        </ul>
+    </section>
+
+    <section id="history">
+        <h2>A little history</h2>
+        <p>
+            Dénes Kőnig proved his matching theorem in 1931, and Philip Hall's 1935 "marriage theorem" says when everyone on one side can be matched: every group must,
+            together, be allowed at least as many partners as it has members. Harold Kuhn named the Hungarian method in 1955 after Kőnig and Jenő Egerváry,
+            whose work it builds on. John Hopcroft and Richard Karp published their faster algorithm in 1973, and David Gale and Lloyd Shapley's 1962 paper on stable
+            matching later contributed to Shapley's 2012 Nobel Prize in economics, shared with Alvin Roth.
+        </p>
+    </section>
+</ArticleLayout>
+
+@code {
+    private static readonly IReadOnlyList<(string, string)> Sections =
+    [
+        ("problem", "The problem"),
+        ("disguise", "A flow problem in disguise"),
+        ("paths", "Augmenting paths"),
+        ("structures", "Data structures"),
+        ("algorithms", "The algorithms"),
+        ("beyond", "Beyond this lab"),
+        ("history", "A little history"),
+    ];
+}

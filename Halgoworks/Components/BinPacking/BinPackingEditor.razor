@@ -1,0 +1,44 @@
+@using Halgoworks.Core.BinPacking
+
+<aside class="side edit-panel" aria-label="Edit the example">
+    <div class="side-section">
+        <div class="step-meta"><span class="step-phase">Editing</span></div>
+        <h2 class="step-title">Make it your own</h2>
+        <p class="edit-hint" style="margin-top: 8px">Every change re-runs the algorithm; the view jumps to its result. Turn off "Edit" to step through it again.</p>
+    </div>
+    <div class="side-section">
+        <div class="edit-row">
+            <span>Bin size</span>
+            <Stepper Value="Instance.Capacity" Min="@Math.Max(2, Instance.Items.Max(i => i.Size))" Max="100" Label="bin size"
+                     ValueChanged="v => Changed.InvokeAsync(Instance with { Capacity = v })" />
+        </div>
+    </div>
+    <div class="side-section">
+        <h3>Items</h3>
+        @foreach (var item in Instance.Items)
+        {
+            <div class="edit-row">
+                <span>Item #@(item.Id + 1)</span>
+                <Stepper Value="item.Size" Min="1" Max="Instance.Capacity" Label="@($"item {item.Id + 1} size")" ValueChanged="v => Update(item with { Size = v })" />
+                <button type="button" class="btn small" aria-label="@($"Remove item {item.Id + 1}")" disabled="@(Instance.Items.Count <= 1)" @onclick="() => Remove(item.Id)">×</button>
+            </div>
+        }
+        <div class="play-actions">
+            <button type="button" class="btn small" disabled="@(Instance.Items.Count >= 24)" @onclick="Add">Add an item</button>
+        </div>
+    </div>
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public BinPackingInstance Instance { get; set; } = default!;
+    [Parameter] public EventCallback<BinPackingInstance> Changed { get; set; }
+
+    private Task Update(BinItem item) =>
+        Changed.InvokeAsync(Instance with { Items = Instance.Items.Select(i => i.Id == item.Id ? item : i).ToList() });
+
+    private Task Remove(int id) =>
+        Changed.InvokeAsync(Instance with { Items = Instance.Items.Where(i => i.Id != id).Select((i, k) => i with { Id = k }).ToList() });
+
+    private Task Add() =>
+        Changed.InvokeAsync(Instance with { Items = [.. Instance.Items, new BinItem(Instance.Items.Count, Math.Max(1, Instance.Capacity / 3))] });
+}

@@ -1,6 +1,8 @@
 @using Halgoworks.Core.Vrp
+@implements IAsyncDisposable
+@inject IJSRuntime JS
 
-<svg class="viz" viewBox="0 0 @Size @Size" style="max-width: 640px; margin: 0 auto;" role="img"
+<svg @ref="_svg" class="viz @(Editable ? "editing" : null)" viewBox="0 0 @Size @Size" style="max-width: 640px; margin: 0 auto; @(Editable ? "cursor: crosshair" : "")" role="img" @onclick="MapClick"
      aria-label="@($"Map of {Instance.Customers.Count} customers and {Step.Routes.Count} routes")">
     <defs>
         @for (var i = 0; i < Palette.Series.Length; i++)
@@ -17,8 +19,9 @@
         </clipPath>
     </defs>
 
-    <rect x="@Margin" y="@Margin" width="@(Size - 2 * Margin)" height="@(Size - 2 * Margin)" rx="6" fill="@Palette.Ink0" stroke="@Palette.Line" />
-    @for (var k = 1; k < 20; k++)
+    <rect x="@Margin" y="@Margin" width="@(Size - 2 * Margin)" height="@(Size - 2 * Margin)" rx="6" fill="@Palette.Ink0" stroke="@Palette.Line"
+ />
+    @for (var k = 1; k < Extent; k++)
     {
         var major = k % 5 == 0;
         <line x1="@F(P(k))" x2="@F(P(k))" y1="@Margin" y2="@(Size - Margin)" stroke="@(major ? "#22365a" : "#18283f")" stroke-width="1" />
@@ -40,9 +43,9 @@
         var color = slot < 0 ? Palette.Other : Palette.Slot(slot);
         var neutral = slot < 0;
         var active = Step.Active is null || Step.Active == r;
-        <path d="@RoutePath(route)" fill="none" stroke="@color" stroke-width="@(neutral ? 1.2 : active ? 3 : 2.2)" stroke-linejoin="round" stroke-linecap="round"
+        <path d="@RoutePath(route)" fill="none" stroke="@color" stroke-width="@(neutral ? 1.2 : Compact ? 1.8 : active ? 3 : 2.2)" stroke-linejoin="round" stroke-linecap="round"
               opacity="@(neutral ? "0.55" : active ? "1" : "0.4")"
-              marker-mid="@(neutral ? null : $"url(#vrp-arrow-{(slot < Palette.Series.Length ? slot.ToString() : "other")})")" />
+              marker-mid="@(neutral || Compact ? null : $"url(#vrp-arrow-{(slot < Palette.Series.Length ? slot.ToString() : "other")})")" />
     }
 
     @foreach (var edge in Step.Removed)
@@ -75,7 +78,7 @@
         }
     }
 
-    @if (Step.Final && !Reduced)
+    @if (Step.Final && !Reduced && !Compact)
     {
         @for (var r = 0; r < Step.Routes.Count; r++)
         {
@@ -90,8 +93,8 @@
 
     @foreach (var c in Instance.Customers)
     {
-        var (x, y) = (P(c.X), P(c.Y));
-        var radius = 6 + c.Demand * 0.8;
+        var (x, y) = _dragId == c.Id && _dragAt is { } at ? (P(at.X), P(at.Y)) : (P(c.X), P(c.Y));
+        var radius = Compact ? 2.5 + c.Demand * 0.3 : 6 + c.Demand * 0.8;
         var routeIndex = RouteOf(c.Id);
         var slot = routeIndex < 0 ? -2 : Step.Colors.Count > routeIndex ? Step.Colors[routeIndex] : routeIndex;
         var fill = slot == -2 ? Palette.Ink2 : slot < 0 ? "#3b4a63" : Palette.Slot(slot);
@@ -101,10 +104,19 @@
             {
                 <circle cx="@F(x)" cy="@F(y)" r="@F(radius + 5)" fill="none" stroke="@Palette.Signal" stroke-width="2.5" class="glow" />
             }
-            <circle cx="@F(x)" cy="@F(y)" r="@F(radius)" fill="@fill" stroke="@(slot == -2 ? Palette.Text3 : Palette.Ink0)" stroke-width="@(slot == -2 ? 1.2 : 2)">
+            @if (Selected == c.Id)
+            {
+                <circle cx="@F(x)" cy="@F(y)" r="@F(radius + 5)" fill="none" stroke="@Palette.Text1" stroke-width="2" stroke-dasharray="3 3" />
+            }
+            <circle cx="@F(x)" cy="@F(y)" r="@F(radius)" fill="@fill" stroke="@(slot == -2 ? Palette.Text3 : Palette.Ink0)" stroke-width="@(Compact ? 0.8 : slot == -2 ? 1.2 : 2)"
+                    style="@(Interactive ? (Editable ? "cursor: grab; touch-action: none" : "cursor: pointer") : null)"
+                    @onclick="() => CustomerClick(c.Id)" @onclick:stopPropagation="true" data-drag="@(Editable ? c.Id.ToString(CultureInfo.InvariantCulture) : null)">
                 <title>@Describe(c)</title>
             </circle>
-            <text x="@F(x)" y="@F(y)" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#fff" pointer-events="none">@c.Id</text>
+            @if (!Compact)
+            {
+                <g><text x="@F(x)" y="@F(y)" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#fff" pointer-events="none">@c.Id</text></g>
+            }
         </g>
     }
 
@@ -123,11 +135,105 @@
     [Parameter, EditorRequired] public VrpStep Step { get; set; } = default!;
     [Parameter] public bool Reduced { get; set; }
 
+    /// <summary>Small dots, no labels or arrows: for instances with a hundred or more customers.</summary>
+    [Parameter] public bool Compact { get; set; }
+
+    /// <summary>Play mode: a customer was clicked.</summary>
+    [Parameter] public EventCallback<int> OnCustomerClick { get; set; }
+
+    /// <summary>Edit mode: click empty map to add, drag to move, click to select.</summary>
+    [Parameter] public bool Editable { get; set; }
+
+    [Parameter] public EventCallback<(double X, double Y)> OnMapClick { get; set; }
+    [Parameter] public EventCallback<(int Id, double X, double Y)> OnCustomerMoved { get; set; }
+    [Parameter] public int? Selected { get; set; }
+
+    private ElementReference _svg;
+    private IJSObjectReference? _drag;
+    private DotNetObjectReference<VrpMap>? _self;
+    private int? _dragId;
+    private (double X, double Y)? _dragAt;
+
+    private bool Interactive => Editable || OnCustomerClick.HasDelegate;
+
+    private double ToKm(double px) => Math.Clamp((px - Margin) / Km, 0.2, Extent - 0.2);
+
+    private async Task CustomerClick(int id)
+    {
+        if (OnCustomerClick.HasDelegate) await OnCustomerClick.InvokeAsync(id);
+    }
+
+    private async Task MapClick(MouseEventArgs e)
+    {
+        if (!Editable) return;
+        _drag ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/drag.js");
+        var point = await _drag.InvokeAsync<double[]>("svgPoint", _svg, e.ClientX, e.ClientY);
+        await OnMapClick.InvokeAsync((Math.Round(ToKm(point[0]), 2), Math.Round(ToKm(point[1]), 2)));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            _drag = await JS.InvokeAsync<IJSObjectReference>("import", "./js/drag.js");
+            _self = DotNetObjectReference.Create(this);
+            await _drag.InvokeVoidAsync("attach", _svg, _self);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    [JSInvokable]
+    public void OnDragStart(string key, double x, double y)
+    {
+        if (Editable && int.TryParse(key, CultureInfo.InvariantCulture, out var id)) _dragId = id;
+    }
+
+    [JSInvokable]
+    public void OnDragMove(string key, double x, double y)
+    {
+        if (_dragId is null) return;
+        _dragAt = (ToKm(x), ToKm(y));
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnDragEnd(string key, double x, double y, bool moved)
+    {
+        var id = _dragId;
+        _dragId = null;
+        _dragAt = null;
+        if (id is not { } customer) return;
+        if (moved) await OnCustomerMoved.InvokeAsync((customer, Math.Round(ToKm(x), 2), Math.Round(ToKm(y), 2)));
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_drag is not null)
+        {
+            try
+            {
+                await _drag.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        _self?.Dispose();
+    }
+
     private const int Size = 600;
     private const int Margin = 20;
-    private const double Km = (Size - 2.0 * Margin) / 20;
+    // Generated maps are 20 km across; real-city maps are a smaller box with the depot in the middle.
+    private double Extent => Instance.Geo is null ? 20 : Math.Max(1, Math.Round(2 * Math.Max(Instance.DepotX, Instance.DepotY)));
 
-    private static double P(double km) => Margin + km * Km;
+    private double Km => (Size - 2.0 * Margin) / Extent;
+
+    private double P(double km) => Margin + km * Km;
 
     private (double X, double Y) Pos(int node) => Instance.Pos(node);
 

@@ -54,19 +54,51 @@ public static class MaxFlowSolver
             "return total",
         ]);
 
+    public static readonly AlgorithmInfo PushRelabelInfo = new(
+        "pr", "Push–relabel", AlgorithmKind.Exact,
+        "No augmenting paths at all: nodes hold excess flow and push it downhill to lower neighbors, rising when they get stuck, until nothing more can reach the sink.",
+        "O(V³) with a FIFO queue", "O(V + E)",
+        [
+            "height(s) ← number of nodes;  flood every edge out of s",
+            "while some node u other than s and t holds excess:",
+            "  if u has an arc with spare room to v, one level lower:",
+            "    push min(excess(u), spare room) along it",
+            "  else:",
+            "    relabel: height(u) ← 1 + lowest neighbor reachable with spare room",
+            "S ← nodes reachable from s;  cut ← edges from S to the rest",
+            "return excess(t)",
+        ]);
+
     public static AlgorithmInfo Info(FlowAlgorithm algorithm) => algorithm switch
     {
+        FlowAlgorithm.PushRelabel => PushRelabelInfo,
         FlowAlgorithm.FordFulkerson => FordFulkersonInfo,
         FlowAlgorithm.Dinic => DinicInfo,
         _ => EdmondsKarpInfo,
     };
 
-    public static IReadOnlyList<MaxFlowStep> Trace(FlowNetwork network, FlowAlgorithm algorithm) => algorithm switch
+    public static IReadOnlyList<MaxFlowStep> Trace(FlowNetwork network, FlowAlgorithm algorithm) => Run(network, algorithm, record: true).Steps;
+
+    /// <summary>Maximum flow by the given algorithm, without recording steps.</summary>
+    public static MaxFlowResult Solve(FlowNetwork network, FlowAlgorithm algorithm)
     {
-        FlowAlgorithm.FordFulkerson => new Tracer(network).FordFulkerson(),
-        FlowAlgorithm.Dinic => new Tracer(network).Dinic(),
-        _ => new Tracer(network).EdmondsKarp(),
-    };
+        var tracer = Run(network, algorithm, record: false);
+        return tracer.Result;
+    }
+
+    private static Tracer Run(FlowNetwork network, FlowAlgorithm algorithm, bool record)
+    {
+        var tracer = new Tracer(network, record);
+        switch (algorithm)
+        {
+            case FlowAlgorithm.FordFulkerson: tracer.FordFulkerson(); break;
+            case FlowAlgorithm.Dinic: tracer.Dinic(); break;
+            case FlowAlgorithm.PushRelabel: tracer.PushRelabel(); break;
+            default: tracer.EdmondsKarp(); break;
+        }
+
+        return tracer;
+    }
 
     /// <summary>Maximum flow by Edmonds–Karp, without recording steps.</summary>
     public static MaxFlowResult Solve(FlowNetwork network)
@@ -151,7 +183,7 @@ public static class MaxFlowSolver
     }
 
     /// <summary>Runs one algorithm and records every step.</summary>
-    private sealed class Tracer(FlowNetwork net)
+    private sealed class Tracer(FlowNetwork net, bool record)
     {
         private readonly Residual _g = new(net);
         private readonly List<MaxFlowStep> _steps = [];
@@ -177,16 +209,27 @@ public static class MaxFlowSolver
             Nodes = step.Nodes.Count == 0 ? new NodeState[net.Nodes.Count] : step.Nodes,
         };
 
-        private void Add(MaxFlowStep step) => _steps.Add(Snap(step));
+        private bool[] _sourceSide = [];
 
-        private void Start(string how) => Add(new MaxFlowStep
+        public IReadOnlyList<MaxFlowStep> Steps => _steps;
+
+        public MaxFlowResult Result => new(_total, _g.Flow.ToArray(), _sourceSide, _augmentations);
+
+        private void Add(MaxFlowStep step)
+        {
+            if (record) _steps.Add(Snap(step));
+        }
+
+        private void Start(string how) => Add(StartStep(how));
+
+        private MaxFlowStep StartStep(string how) => new()
         {
             Title = "Every pipe starts empty",
             Text = $"Each edge is labelled flow / capacity. {how} The **residual graph** says where more can go: a forward arc has capacity − flow to spare, and a backward arc can cancel flow that was already sent.",
             Line = 0,
             Phase = "Setup",
             Watches = [Watch.Of("nodes", net.Nodes.Count), Watch.Of("edges", net.Edges.Count), Watch.Of("total", 0)],
-        });
+        };
 
         public IReadOnlyList<MaxFlowStep> EdmondsKarp()
         {
@@ -233,26 +276,30 @@ public static class MaxFlowSolver
                         }
                     }
 
-                    var intro = u == _s && round == 1
-                        ? "Breadth-first search explores the residual graph one layer at a time, so the first path it finds uses the fewest edges. "
-                        : "";
-                    var news = discovered.Count == 0
-                        ? $"From =={L(u)}== there is nowhere new to go."
-                        : $"From =={L(u)}== it reaches {Num.List(discovered.Select(a => $"{L(_g.Head(a))} ({_g.Spare(a)} spare{(a.Forward ? "" : ", backward")})"))}.";
-                    var blocked = full.Count == 0 ? "" : $" {Num.List(full.Select(ArcName))} {(full.Count == 1 ? "is" : "are")} full.";
-                    var reached = found ? $" That includes =={L(_t)}==, so the search stops." : "";
-                    Add(new MaxFlowStep
+                    // Narration is only built when steps are recorded; untraced runs (Scale mode) skip it.
+                    if (record)
                     {
-                        Title = $"Search: expand {L(u)}",
-                        Text = intro + news + blocked + reached,
-                        Line = 2,
-                        Phase = phase,
-                        Nodes = (NodeState[])state.Clone(),
-                        Frontier = queue.ToList(),
-                        Tree = tree.ToList(),
-                        Scanned = discovered,
-                        Watches = [Watch.Of("expand", L(u)), Watch.Of("queue", queue.Count == 0 ? "empty" : string.Join(", ", queue.Select(L))), Watch.Of("total", _total)],
-                    });
+                        var intro = u == _s && round == 1
+                            ? "Breadth-first search explores the residual graph one layer at a time, so the first path it finds uses the fewest edges. "
+                            : "";
+                        var news = discovered.Count == 0
+                            ? $"From =={L(u)}== there is nowhere new to go."
+                            : $"From =={L(u)}== it reaches {Num.List(discovered.Select(a => $"{L(_g.Head(a))} ({_g.Spare(a)} spare{(a.Forward ? "" : ", backward")})"))}.";
+                        var blocked = full.Count == 0 ? "" : $" {Num.List(full.Select(ArcName))} {(full.Count == 1 ? "is" : "are")} full.";
+                        var reached = found ? $" That includes =={L(_t)}==, so the search stops." : "";
+                        Add(new MaxFlowStep
+                        {
+                            Title = $"Search: expand {L(u)}",
+                            Text = intro + news + blocked + reached,
+                            Line = 2,
+                            Phase = phase,
+                            Nodes = (NodeState[])state.Clone(),
+                            Frontier = queue.ToList(),
+                            Tree = tree.ToList(),
+                            Scanned = discovered,
+                            Watches = [Watch.Of("expand", L(u)), Watch.Of("queue", queue.Count == 0 ? "empty" : string.Join(", ", queue.Select(L))), Watch.Of("total", _total)],
+                        });
+                    }
                     state[u] = NodeState.Visited;
                 }
 
@@ -318,39 +365,47 @@ public static class MaxFlowSolver
 
                     if (taken is { } arc)
                     {
-                        var v = _g.Head(arc);
-                        var kind = arc.Forward ? "" : ", a backward arc that would cancel flow";
-                        Add(new MaxFlowStep
+                        // Narration is only built when steps are recorded; untraced runs (Scale mode) skip it.
+                        if (record)
                         {
-                            Title = $"Go deeper: {ArcName(arc)}",
-                            Text = $"From {L(u)}, the first unexplored arc with spare capacity is =={ArcName(arc)}== ({_g.Spare(arc)} spare{kind}).{(v == _t ? $" It reaches {L(_t)}: path found." : "")}",
-                            Line = 2,
-                            Phase = phase,
-                            Nodes = States(),
-                            Frontier = stack.AsEnumerable().Reverse().ToList(),
-                            Tree = StackArcs(),
-                            Scanned = [arc],
-                            Watches = [Watch.Of("at", L(v)), Watch.Of("depth", stack.Count - 1), Watch.Of("total", _total)],
-                        });
+                            var v = _g.Head(arc);
+                            var kind = arc.Forward ? "" : ", a backward arc that would cancel flow";
+                            Add(new MaxFlowStep
+                            {
+                                Title = $"Go deeper: {ArcName(arc)}",
+                                Text = $"From {L(u)}, the first unexplored arc with spare capacity is =={ArcName(arc)}== ({_g.Spare(arc)} spare{kind}).{(v == _t ? $" It reaches {L(_t)}: path found." : "")}",
+                                Line = 2,
+                                Phase = phase,
+                                Nodes = States(),
+                                Frontier = stack.AsEnumerable().Reverse().ToList(),
+                                Tree = StackArcs(),
+                                Scanned = [arc],
+                                Watches = [Watch.Of("at", L(v)), Watch.Of("depth", stack.Count - 1), Watch.Of("total", _total)],
+                            });
+                        }
                     }
                     else
                     {
                         stack.RemoveAt(stack.Count - 1);
                         dead[u] = true;
-                        var back = stack.Count > 0
-                            ? $"Back up to {L(stack[^1])} and try its next arc."
-                            : $"The search is back at {L(_s)} with nothing left to try.";
-                        Add(new MaxFlowStep
+                        // Narration is only built when steps are recorded; untraced runs (Scale mode) skip it.
+                        if (record)
                         {
-                            Title = $"Dead end at {L(u)}",
-                            Text = $"Every arc out of =={L(u)}== is full or leads somewhere already explored. {back}",
-                            Line = 3,
-                            Phase = phase,
-                            Nodes = States(),
-                            Frontier = stack.AsEnumerable().Reverse().ToList(),
-                            Tree = StackArcs(),
-                            Watches = [Watch.Of("dead end", L(u)), Watch.Of("depth", Math.Max(0, stack.Count - 1)), Watch.Of("total", _total)],
-                        });
+                            var back = stack.Count > 0
+                                ? $"Back up to {L(stack[^1])} and try its next arc."
+                                : $"The search is back at {L(_s)} with nothing left to try.";
+                            Add(new MaxFlowStep
+                            {
+                                Title = $"Dead end at {L(u)}",
+                                Text = $"Every arc out of =={L(u)}== is full or leads somewhere already explored. {back}",
+                                Line = 3,
+                                Phase = phase,
+                                Nodes = States(),
+                                Frontier = stack.AsEnumerable().Reverse().ToList(),
+                                Tree = StackArcs(),
+                                Watches = [Watch.Of("dead end", L(u)), Watch.Of("depth", Math.Max(0, stack.Count - 1)), Watch.Of("total", _total)],
+                            });
+                        }
                     }
                 }
 
@@ -360,7 +415,7 @@ public static class MaxFlowSolver
                     return _steps;
                 }
 
-                Augment(StackArcs(), States(), StackArcs(), phase, pathLine: 4, pushLine: 5);
+                Augment(StackArcs(), record ? States() : [], record ? StackArcs() : [], phase, pathLine: 4, pushLine: 5);
             }
         }
 
@@ -447,6 +502,157 @@ public static class MaxFlowSolver
             }
         }
 
+        public void PushRelabel()
+        {
+            var n = net.Nodes.Count;
+            var height = new int[n];
+            var excess = new int[n];
+            var next = new int[n];
+            var active = new Queue<int>();
+            var queued = new bool[n];
+
+            NodeState[] States(int? current)
+            {
+                var st = new NodeState[n];
+                foreach (var v in active) st[v] = NodeState.Frontier;
+                if (current is { } c) st[c] = NodeState.Current;
+                return st;
+            }
+
+            void Snapshot(MaxFlowStep step, int? current)
+            {
+                if (!record) return;
+                Add(step with
+                {
+                    Nodes = States(current),
+                    Frontier = active.ToList(),
+                    Height = height.ToArray(),
+                    Excess = excess.ToArray(),
+                });
+            }
+
+            void Activate(int v)
+            {
+                if (v == _s || v == _t || excess[v] <= 0 || queued[v]) return;
+                queued[v] = true;
+                active.Enqueue(v);
+            }
+
+            Snapshot(StartStep($"Push–relabel never searches for whole paths. It treats each node as a reservoir at some **height**: flow only runs downhill, one level at a time, and a node that can't get rid of its excess is lifted up."), null);
+
+            height[_s] = n;
+            var flooded = new List<Arc>();
+            foreach (var a in _g.Out[_s].Where(a => a.Forward))
+            {
+                var amount = _g.Spare(a);
+                if (amount <= 0) continue;
+                _g.Push(a, amount);
+                excess[_s] -= amount;
+                excess[_g.Head(a)] += amount;
+                flooded.Add(a);
+            }
+
+            _total = excess[_t];
+            foreach (var a in flooded) Activate(_g.Head(a));
+            Snapshot(new MaxFlowStep
+            {
+                Title = $"Lift {L(_s)} and flood its pipes",
+                Text = $"=={L(_s)}== is raised to height {n}, the number of nodes, so flow never comes back to it unless it truly can't reach {L(_t)}. Every pipe leaving it is filled to capacity: {Num.List(flooded.Select(a => $"{ArcName(a)} ({_g.Flow[a.Edge]})"))}. Those nodes now hold **excess** they must pass on. This isn't a valid flow yet; it's a *preflow*.",
+                Line = 0,
+                Phase = "Preflow",
+                Scanned = flooded,
+                Watches = [Watch.Of($"height({L(_s)})", n), Watch.Of("active nodes", active.Count), Watch.Of($"at {L(_t)}", excess[_t])],
+            }, null);
+
+            // FIFO push–relabel does O(n³) operations at most; the guard only protects against a bug looping forever.
+            var limit = 4L * n * n * n + 1000;
+            long guard = 0;
+            int pushes = 0, relabels = 0;
+            while (active.Count > 0 && guard++ < limit)
+            {
+                var u = active.Peek();
+                Arc? admissible = null;
+                while (next[u] < _g.Out[u].Count)
+                {
+                    var a = _g.Out[u][next[u]];
+                    if (_g.Spare(a) > 0 && height[u] == height[_g.Head(a)] + 1)
+                    {
+                        admissible = a;
+                        break;
+                    }
+
+                    next[u]++;
+                }
+
+                if (admissible is { } arc)
+                {
+                    var v = _g.Head(arc);
+                    var amount = Math.Min(excess[u], _g.Spare(arc));
+                    _g.Push(arc, amount);
+                    pushes++;
+                    excess[u] -= amount;
+                    excess[v] += amount;
+                    _total = excess[_t];
+                    var empty = excess[u] == 0;
+                    if (empty) queued[active.Dequeue()] = false;
+                    Activate(v);
+                    var where = v == _t
+                        ? $" It reaches the sink: {_total} units have arrived."
+                        : v == _s
+                            ? $" It flows back to {L(_s)}: this excess can't reach {L(_t)}."
+                            : "";
+                    var direction = arc.Forward ? "" : ", cancelling flow sent earlier";
+                    Snapshot(new MaxFlowStep
+                    {
+                        Title = $"Push {amount}: {ArcName(arc)}",
+                        Text = $"=={L(u)}== (height {height[u]}) holds {excess[u] + amount} excess and {L(v)} sits one level lower (height {height[v]}). Push {amount} along {ArcName(arc)}{direction}.{where}{(empty ? $" {L(u)} is empty now." : "")}",
+                        Line = 3,
+                        Phase = "Push and relabel",
+                        Scanned = [arc],
+                        Pushed = amount,
+                        Watches = [Watch.Of("node", L(u)), Watch.Of("height", height[u]), Watch.Of("excess left", excess[u]), Watch.Of($"at {L(_t)}", _total)],
+                    }, u);
+                    continue;
+                }
+
+                // No downhill arc with room: lift u just above its lowest neighbor it can still send to.
+                var options = _g.Out[u].Where(a => _g.Spare(a) > 0).ToList();
+                var lowest = options.MinBy(a => height[_g.Head(a)]);
+                var old = height[u];
+                height[u] = height[_g.Head(lowest)] + 1;
+                relabels++;
+                next[u] = 0;
+                Snapshot(new MaxFlowStep
+                {
+                    Title = $"Relabel {L(u)}: height {old} → {height[u]}",
+                    Text = $"=={L(u)}== still holds {excess[u]} units, but every arc it could use goes level or uphill. Lift it to {height[u]}, one above its lowest neighbor with spare room ({L(_g.Head(lowest))} at {height[_g.Head(lowest)]}), so the excess can flow there next.",
+                    Line = 5,
+                    Phase = "Push and relabel",
+                    Watches = [Watch.Of("node", L(u)), Watch.Of("height", $"{old} → {height[u]}"), Watch.Of("excess", excess[u]), Watch.Of($"at {L(_t)}", _total)],
+                }, u);
+            }
+
+            _total = excess[_t];
+            var reached = new bool[n];
+            var queue = new Queue<int>([_s]);
+            reached[_s] = true;
+            while (queue.Count > 0)
+            {
+                var u = queue.Dequeue();
+                foreach (var a in _g.Out[u])
+                {
+                    var v = _g.Head(a);
+                    if (reached[v] || _g.Spare(a) <= 0) continue;
+                    reached[v] = true;
+                    queue.Enqueue(v);
+                }
+            }
+
+            Finish(reached, "search from the source", 1, 6, height: height, excess: excess,
+                stopText: $"No node holds excess any more: every unit that left {L(_s)} either reached =={L(_t)}== or flowed back. The preflow is now a real flow, and a final search from {L(_s)} confirms {L(_t)} is out of reach.",
+                effort: $"It took {pushes} pushes and {relabels} relabels, and never searched for a path.");
+        }
+
         // Dinic's DFS: follows level-increasing arcs, advancing each node's pointer past dead ends for good.
         private bool Advance(int u, int[] level, int[] next, List<Arc> path)
         {
@@ -507,17 +713,21 @@ public static class MaxFlowSolver
             });
         }
 
-        private void Finish(bool[] reached, string search, int stopLine, int cutLine, int[]? level = null)
+        private void Finish(bool[] reached, string search, int stopLine, int cutLine, int[]? level = null, int[]? height = null, int[]? excess = null,
+            string? stopText = null, string? effort = null)
         {
+            _sourceSide = reached;
             var states = reached.Select(r => r ? NodeState.Visited : NodeState.Idle).ToArray();
             Add(new MaxFlowStep
             {
                 Title = $"No path to {L(_t)}",
-                Text = $"The {search} can't reach =={L(_t)}==: every route there crosses a pipe that is already full, or would need to cancel flow that isn't there. No augmenting path means the flow can't grow.",
+                Text = stopText ?? $"The {search} can't reach =={L(_t)}==: every route there crosses a pipe that is already full, or would need to cancel flow that isn't there. No augmenting path means the flow can't grow.",
                 Line = stopLine,
                 Phase = "Min cut",
                 Nodes = states,
                 Level = level?.ToArray(),
+                Height = height?.ToArray(),
+                Excess = excess?.ToArray(),
                 Watches = [Watch.Of("reached", reached.Count(r => r)), Watch.Of("total", _total)],
             });
 
@@ -527,12 +737,14 @@ public static class MaxFlowSolver
             Add(new MaxFlowStep
             {
                 Title = $"Maximum flow = minimum cut = {_total}",
-                Text = $"The nodes the last search reached, S = {{{side}}}, form one side of a **minimum cut**. The edges leaving S are {cutText}: all full, and their capacities add up to {cut.Sum(e => e.Capacity)}, exactly the flow. No flow can exceed the capacity of any cut, so **{_total}** is the maximum. It took {_augmentations} augmenting path{(_augmentations == 1 ? "" : "s")}.",
+                Text = $"The nodes the last search reached, S = {{{side}}}, form one side of a **minimum cut**. The edges leaving S are {cutText}: all full, and their capacities add up to {cut.Sum(e => e.Capacity)}, exactly the flow. No flow can exceed the capacity of any cut, so **{_total}** is the maximum. {effort ?? $"It took {_augmentations} augmenting path{(_augmentations == 1 ? "" : "s")}."}",
                 Line = cutLine,
                 Phase = "Done",
                 Nodes = states,
                 SourceSide = reached,
                 Level = level?.ToArray(),
+                Height = height?.ToArray(),
+                Excess = excess?.ToArray(),
                 Watches = [Watch.Of("max flow", _total), Watch.Of("cut edges", cut.Count), Watch.Of("paths", _augmentations)],
             });
         }

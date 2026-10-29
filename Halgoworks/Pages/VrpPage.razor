@@ -2,23 +2,48 @@
 @using Halgoworks.Core.Vrp
 @using Halgoworks.Components.Vrp
 @implements IDisposable
+@inject RoadDistances Roads
+@inject NavigationManager Nav
 
-<PageTitle>Vehicle routing | Halgoworks</PageTitle>
+<SeoHead Title="@Problems.Routing.SeoTitle" Description="@Problems.Routing.SeoDescription" Path="@Problems.Routing.Slug" Image="@Problems.Routing.Slug"
+         ImageAlt="@($"{Problems.Routing.Name} lab in Halgoworks")" StructuredData="SeoHead.LabData(Nav, Problems.Routing)" />
 
 <div class="page">
     <LabHeader Problem="Problems.Routing" />
+    <ShareNotice Problem="@_shareProblem" />
 
     <section class="lab" aria-label="Vehicle routing lab">
         <div class="toolbar">
             <div class="field">
+                <span>Mode</span>
+                <Segmented T="string" Options="LabModes.WithPlay" Value="_mode" ValueChanged="SetMode" Label="Mode" />
+            </div>
+            @if (_mode == LabModes.Watch)
+            {
+            <div class="field">
                 <span>Algorithm</span>
                 <Segmented T="VrpAlgorithm" Options="AlgorithmOptions" Value="_algorithm" ValueChanged="SetAlgorithm" Label="Algorithm" />
             </div>
+            }
+            @if (_mode != LabModes.Scale)
+            {
             <label class="field">
                 <span>Map</span>
-                <select value="@(_clustered ? "clustered" : "uniform")" @onchange="SetMap">
-                    <option value="uniform">City center: spread out</option>
-                    <option value="clustered">Neighborhoods: clustered</option>
+                <select value="@MapValue" @onchange="SetMap">
+                    @if (_shared)
+                    {
+                        <option value="shared">@(_instance.Name == "Your edited example" ? "Your edited map" : "Shared map")</option>
+                    }
+                    <optgroup label="Generated, 20 × 20 km">
+                        <option value="uniform">City center: spread out</option>
+                        <option value="clustered">Neighborhoods: clustered</option>
+                    </optgroup>
+                    <optgroup label="Real streets (OpenStreetMap)">
+                        @foreach (var city in Cities)
+                        {
+                            <option value="@($"city:{city.Key}")">@city.Name</option>
+                        }
+                    </optgroup>
                 </select>
             </label>
             <label class="field">
@@ -26,15 +51,40 @@
                 <input type="range" min="6" max="25" value="@_count" style="--pct: @Pct(_count, 6, 25)" @onchange="SetCount" />
             </label>
             <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New map</button>
-            <label class="check"><input type="checkbox" checked="@_deadlines" @onchange="ToggleDeadlines" />Delivery deadlines</label>
-            <label class="check"><input type="checkbox" checked="@_polish" @onchange="TogglePolish" />Polish with 2-opt</label>
+            <label class="check" title="@(IsCity ? "Real-city maps don't use deadlines" : null)"><input type="checkbox" checked="@(_deadlines && !IsCity)" disabled="@IsCity" @onchange="ToggleDeadlines" />Delivery deadlines</label>
+            <label class="check" title="@(IsMeta ? "The metaheuristics already include 2-opt moves" : null)"><input type="checkbox" checked="@(_polish && !IsMeta)" disabled="@IsMeta" @onchange="TogglePolish" />Polish with 2-opt</label>
+            }
             <span class="spacer"></span>
+            @if (_mode == LabModes.Watch && !IsCity)
+            {
+                <label class="check"><input type="checkbox" checked="@_editing" @onchange="SetEditing" />Edit</label>
+            }
+            <ShareButton Url="ShareLink" />
+            @if (_mode == LabModes.Watch)
+            {
             <div class="field">
                 <span>View</span>
-                <Segmented T="bool" Options="Views" Value="_view3d" ValueChanged="v => _view3d = v" Label="View" />
+                <Segmented T="string" Options="Views" Value="@ViewValue" ValueChanged="SetView" Label="View" />
             </div>
+            }
         </div>
 
+        @if (_mode == LabModes.Race)
+        {
+            <VrpRace Instance="_instance" Polish="@(_polish)" Version="_version" Selected="RaceKeys" SelectedChanged="v => _raceState = string.Join(',', v)" />
+        }
+        else if (_mode == LabModes.Scale)
+        {
+            <VrpScale State="@_scaleState" StateChanged="v => _scaleState = v" />
+        }
+        else if (_mode == LabModes.Play)
+        {
+            <div class="lab-body">
+                <VrpPlay Instance="_instance" State="@_playState" StateChanged="v => _playState = v" />
+            </div>
+        }
+        else
+        {
         <div class="lab-body">
             <div class="stage">
                 <div class="stage-head">
@@ -48,16 +98,40 @@
                             <li><span class="swatch line" style="background: @Palette.BadText"></span>Edge removed by 2-opt</li>
                         }
                     </ul>
+                    @if (IsCity)
+                    {
+                        <span class="spacer"></span>
+                        <span class="road-status @(_roadProblem ? "problem" : null)" role="status">
+                            @if (_roadLoading)
+                            {
+                                <span class="spinner" aria-hidden="true"></span>
+                            }
+                            @_roadStatus
+                            @if (_roadProblem)
+                            {
+                                <button type="button" class="btn small" @onclick="RetryRoads">Try again</button>
+                            }
+                        </span>
+                    }
                 </div>
                 <div class="stage-body">
                     @if (_view3d)
                     {
                         <Scene3D Kind="vrp" State="SceneState" Version="_version * 100000 + _player.Index" Label="Delivery routes over a 3D city" />
                     }
+                    else if (IsCity && _streets)
+                    {
+                        <div class="vrp-grid">
+                            <RealMap Instance="_instance" Step="Step" Shapes="_shapes" OnMapClick="AddCityCustomer" />
+                            <RouteList Instance="_instance" Step="Step" />
+                        </div>
+                        <p class="muted small">Click the map to add a customer. @(_instance.HasRoads ? "Distances follow real roads, averaged over both directions; finished routes are drawn along the streets." : "")</p>
+                    }
                     else
                     {
                         <div class="vrp-grid">
-                            <VrpMap Instance="_instance" Step="Step" />
+                            <VrpMap Instance="_instance" Step="Step" Editable="_editing" Selected="@(_editing ? _selected : null)"
+                                    OnCustomerClick="@(id => _selected = id)" OnMapClick="AddCustomer" OnCustomerMoved="MoveCustomer" />
                             <RouteList Instance="_instance" Step="Step" />
                         </div>
                     }
@@ -97,23 +171,31 @@
                     }
                 </div>
             </div>
-            <StepPanel Step="Step" Algorithm="VrpSolver.Info(_algorithm, _polish)" Index="_player.Index" Count="_player.Count" />
+            @if (_editing)
+            {
+                <VrpEditor Instance="_instance" Selected="_selected" SelectedChanged="v => _selected = v" Changed="Edited" />
+            }
+            else
+            {
+                <StepPanel Step="Step" Algorithm="VrpSolver.Info(_algorithm, _polish)" Index="_player.Index" Count="_player.Count" />
+            }
         </div>
         <PlaybackBar Player="_player" Marks="_marks" />
+        }
     </section>
 
     <div class="results">
         <section class="panel" aria-labelledby="vrp-distance">
-            <h2 class="panel-title" id="vrp-distance">Total distance as the algorithm runs</h2>
+            <h2 class="panel-title" id="vrp-distance">@(IsMeta ? "Convergence" : "Total distance as the algorithm runs")</h2>
             <p class="panel-sub">@DistanceNote</p>
             <div class="panel-body">
-                <LineChart Series="_distanceSeries" XLabels="_stepLabels" Marker="_player.Index" XTitle="Step" YFormat="@(v => $"{Num.F1(v)} km")" YMin="0"
-                           EndLabels="false" AriaLabel="Total distance at each step" />
+                <LineChart Series="_distanceSeries" XLabels="_stepLabels" Marker="_player.Index" XTitle="Step" YFormat="@(v => $"{Num.F1(v)} km")" YMin="@(IsMeta ? null : 0)"
+                           EndLabels="@IsMeta" AriaLabel="Total distance at each step" />
             </div>
         </section>
         <section class="panel" aria-labelledby="vrp-compare">
-            <h2 class="panel-title" id="vrp-compare">Three heuristics on this map</h2>
-            <p class="panel-sub">Total distance driven, @(_polish ? "after 2-opt polishing" : "without 2-opt") and @(_deadlines ? "with" : "without") deadlines. Shorter is better.</p>
+            <h2 class="panel-title" id="vrp-compare">Every algorithm on this map</h2>
+            <p class="panel-sub">Total distance driven, @(_polish ? "with 2-opt polishing for the construction heuristics" : "without 2-opt for the construction heuristics") and @(_deadlines ? "with" : "without") deadlines. Shorter is better.</p>
             <div class="panel-body">
                 <BarChart Data="_compare" AriaLabel="Distance by algorithm" Min="0" TickFormat="@(v => $"{Palette.F(v)} km")" />
                 <dl class="figures" style="margin-top: 22px">
@@ -132,16 +214,121 @@
 @code {
     private static readonly IReadOnlyList<SegOption<VrpAlgorithm>> AlgorithmOptions =
     [
-        new(VrpAlgorithm.Savings, "Clarke–Wright savings"),
+        new(VrpAlgorithm.Savings, "Savings", Hint: "Clarke–Wright savings"),
         new(VrpAlgorithm.Sweep, "Sweep"),
         new(VrpAlgorithm.NearestNeighbor, "Nearest neighbor"),
+        new(VrpAlgorithm.SimulatedAnnealing, "Annealing", Hint: "Simulated annealing"),
+        new(VrpAlgorithm.Genetic, "Genetic", Hint: "Genetic algorithm"),
     ];
 
-    private static readonly IReadOnlyList<SegOption<bool>> Views = [new(false, "2D"), new(true, "3D")];
+    private IReadOnlyList<SegOption<string>> Views => IsCity
+        ? [new("streets", "Streets", Hint: "OpenStreetMap"), new("2d", "Grid"), new("3d", "3D")]
+        : [new("2d", "2D"), new("3d", "3D")];
+
+    private string ViewValue => _view3d ? "3d" : IsCity && _streets ? "streets" : "2d";
+
+    private void SetView(string view)
+    {
+        _view3d = view == "3d";
+        if (IsCity) _streets = view == "streets";
+    }
+
+    // Real cities: a box around a central spot, small enough that it's all streets and no open water.
+    private static readonly (string Key, string Name, double Lat, double Lon, double Km)[] Cities =
+    [
+        ("berlin", "Berlin", 52.5163, 13.3889, 9),
+        ("paris", "Paris", 48.8606, 2.3376, 8),
+        ("madrid", "Madrid", 40.4200, -3.7025, 8),
+        ("lisbon", "Lisbon", 38.7400, -9.1450, 6),
+        ("saopaulo", "São Paulo", -23.5580, -46.6450, 10),
+    ];
+
+    private string? _city;
+    private bool _streets = true;
+    private bool IsCity => _instance.Geo is not null;
+    private string MapValue => _shared ? "shared" : _city is { } city ? $"city:{city}" : _clustered ? "clustered" : "uniform";
+
+    private string _roadStatus = "";
+    private bool _roadProblem;
+    private bool _roadLoading;
+    private string? _roadKey;
+    private string? _shapesFor;
+    private Dictionary<string, IReadOnlyList<double[]>> _shapes = [];
+
+    private VrpInstance CityInstance(string key)
+    {
+        var city = Cities.First(c => c.Key == key);
+        return VrpInstances.InCity(city.Name, city.Lat, city.Lon, city.Km, _count, _seed, _clustered);
+    }
+
+    // Asks OSRM for road distances; until (or unless) they arrive, every algorithm uses straight lines.
+    private async Task LoadRoadsAsync()
+    {
+        var target = _instance;
+        var key = RoadDistances.Key(target);
+        if (_roadKey == key) return;
+        _roadKey = key;
+        _roadLoading = true;
+        _roadProblem = false;
+        _roadStatus = "Fetching road distances from OpenStreetMap…";
+        var (km, problem) = await Roads.TableAsync(target);
+        if (!IsCity || RoadDistances.Key(_instance) != key) return;
+        _roadLoading = false;
+        if (km is null)
+        {
+            _roadProblem = true;
+            _roadStatus = $"Using straight-line distances: {problem}.";
+            StateHasChanged();
+            return;
+        }
+
+        _roadStatus = "Road distances: OpenStreetMap via OSRM";
+        _instance = _instance with { Road = km };
+        Rebuild(newInstance: false);
+        StateHasChanged();
+    }
+
+    private Task RetryRoads()
+    {
+        _roadKey = null;
+        return LoadRoadsAsync();
+    }
+
+    // Street-following shapes for the finished routes, one request per route.
+    private async Task LoadShapesAsync()
+    {
+        var instance = _instance;
+        var key = RoadDistances.Key(instance);
+        if (_shapesFor != key)
+        {
+            _shapesFor = key;
+            _shapes = [];
+        }
+
+        foreach (var route in _final.Routes.ToList())
+        {
+            var routeKey = RealMap.ShapeKey(route);
+            if (_shapes.ContainsKey(routeKey)) continue;
+            var shape = await Roads.ShapeAsync(instance, [0, .. route, 0]);
+            if (shape is null || _shapesFor != key) return;
+            _shapes[routeKey] = shape;
+            StateHasChanged();
+        }
+    }
+
+    private void AddCityCustomer((double Lat, double Lon) at)
+    {
+        if (_instance.Customers.Count >= 30 || _instance.Geo is not { } geo) return;
+        var (x, y) = VrpInstance.ToKm(geo, at.Lat, at.Lon);
+        var limit = 2 * Math.Max(_instance.DepotX, _instance.DepotY);
+        var customer = new Customer(_instance.Customers.Count + 1, Math.Round(Math.Clamp(x, 0, limit), 3), Math.Round(Math.Clamp(y, 0, limit), 3), 3, 600);
+        Edited(_instance with { Customers = [.. _instance.Customers, customer], Road = null });
+    }
 
     private readonly Player _player = new();
     private VrpAlgorithm _algorithm = VrpAlgorithm.Savings;
     private bool _clustered;
+    private bool _shared;
     private int _count = 16;
     private int _seed = 11;
     private bool _deadlines;
@@ -159,34 +346,159 @@
     private VrpStep Step => _steps[Math.Min(_player.Index, _steps.Count - 1)];
     private VrpStep _final => _steps[^1];
 
-    private string DistanceNote => _algorithm == VrpAlgorithm.Savings
-        ? "Savings starts from one truck per customer, the longest plan, and every merge shortens it. 2-opt then trims what's left."
-        : "Routes are built up from nothing, so distance grows as customers are added; 2-opt then pulls it back down.";
+    private bool IsMeta => VrpSolver.IsMetaheuristic(_algorithm);
+
+    private string DistanceNote => _algorithm switch
+    {
+        VrpAlgorithm.Savings => "Savings starts from one truck per customer, the longest plan, and every merge shortens it. 2-opt then trims what's left.",
+        VrpAlgorithm.SimulatedAnnealing => "The current plan wanders, sometimes uphill, while the best plan only ever gets shorter. The wandering fades as the temperature drops.",
+        VrpAlgorithm.Genetic => "The population average falls as good visiting orders spread; the best plan improves in jumps when a child beats everything seen so far.",
+        _ => "Routes are built up from nothing, so distance grows as customers are added; 2-opt then pulls it back down.",
+    };
+
+    private (VrpInstance? Instance, bool Polish) _comparedFor;
+
+    [SupplyParameterFromQuery(Name = "i")] public string? SharedInstance { get; set; }
+    [SupplyParameterFromQuery(Name = "a")] public string? SharedAlgorithm { get; set; }
+    [SupplyParameterFromQuery(Name = "s")] public int? SharedStep { get; set; }
+    [SupplyParameterFromQuery(Name = "v")] public string? SharedView { get; set; }
+    [SupplyParameterFromQuery(Name = "m")] public string? SharedMode { get; set; }
+    [SupplyParameterFromQuery(Name = "p")] public string? SharedPlay { get; set; }
+
+    private string _mode = LabModes.Watch;
+    private string? _playState;
+    private string? _raceState;
+    private string? _scaleState;
+
+    private IReadOnlyList<string>? RaceKeys => _raceState?.Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+    // Whatever the current mode keeps in share links: moves in Play, racers in Race, size and seed in Scale.
+    private string? ModeState()
+    {
+        var state = _mode switch
+        {
+            LabModes.Play => _playState,
+            LabModes.Race => _raceState,
+            LabModes.Scale => _scaleState,
+            _ => null,
+        };
+        return string.IsNullOrEmpty(state) ? null : state;
+    }
+    private bool _editing;
+    [SupplyParameterFromQuery(Name = "o")] public string? SharedPolish { get; set; }
+    private string? _shareProblem;
 
     protected override void OnInitialized()
     {
         _player.Changed += OnPlayerChanged;
+        if (SharedInstance is not null && ShareState.Decode<VrpInstance>(SharedInstance, InstanceChecks.Check, out _shareProblem) is { } shared)
+        {
+            _instance = shared;
+            _shared = true;
+            _deadlines = shared.UseDeadlines;
+            _count = shared.Customers.Count;
+        }
+
+        if (Enum.TryParse<VrpAlgorithm>(SharedAlgorithm, out var algorithm) && Enum.IsDefined(algorithm)) _algorithm = algorithm;
+        if (SharedPolish == "0") _polish = false;
+        _view3d = SharedView == "3d";
+        _streets = SharedView != "grid";
+        _mode = LabModes.Parse(SharedMode);
+        _playState = _mode == LabModes.Play ? SharedPlay : null;
+        _raceState = _mode == LabModes.Race ? SharedPlay : null;
+        _scaleState = _mode == LabModes.Scale ? SharedPlay : null;
         Rebuild(newInstance: true);
+        if (SharedStep is { } step) _player.Seek(step);
     }
 
     private void OnPlayerChanged() => InvokeAsync(StateHasChanged);
 
+    private string ShareLink() => ShareState.Link(Nav, "routing",
+        ("i", ShareState.Encode(_instance)), ("a", _algorithm.ToString()), ("o", _polish ? null : "0"),
+        ("s", _player.Index.ToString(CultureInfo.InvariantCulture)), ("v", _view3d ? "3d" : IsCity && !_streets ? "grid" : null),
+        ("m", _mode == LabModes.Watch ? null : _mode), ("p", ModeState()));
+
+    private int? _selected;
+
+    private void SetEditing(ChangeEventArgs e)
+    {
+        _editing = e.Value is true;
+        _selected = null;
+        if (!_editing) Rebuild(newInstance: false);
+    }
+
+    private void AddCustomer((double X, double Y) at)
+    {
+        if (_instance.Customers.Count >= 30) return;
+        var id = _instance.Customers.Count + 1;
+        var deadline = VrpEditor.EarliestDeadline(_instance, at.X, at.Y) + 120;
+        _selected = id;
+        Edited(_instance with { Customers = [.. _instance.Customers, new Customer(id, at.X, at.Y, 3, deadline)] });
+    }
+
+    private void MoveCustomer((int Id, double X, double Y) move)
+    {
+        var earliest = VrpEditor.EarliestDeadline(_instance, move.X, move.Y);
+        _selected = move.Id;
+        Edited(_instance with
+        {
+            Customers = _instance.Customers.Select(c => c.Id == move.Id ? c with { X = move.X, Y = move.Y, Deadline = Math.Max(c.Deadline, earliest) } : c).ToList(),
+        });
+    }
+
+    private void SetMode(string mode)
+    {
+        _mode = mode;
+        _editing = false;
+        _player.Pause();
+    }
+
+    // Edits become a custom example; the trace jumps to the end so the new result is visible at once.
+    private void Edited(VrpInstance instance)
+    {
+        _instance = instance with { Name = "Your edited example" };
+        _shared = true;
+        Rebuild(newInstance: true);
+        _player.Last();
+    }
+
     private void Rebuild(bool newInstance)
     {
-        if (newInstance) _instance = VrpInstances.Random(_count, _seed, _clustered, _deadlines);
+        if (newInstance && !_shared) _instance = _city is { } city ? CityInstance(city) : VrpInstances.Random(_count, _seed, _clustered, _deadlines);
+        if (IsCity) _deadlines = false;
         _instance = _instance with { UseDeadlines = _deadlines };
         _steps = VrpSolver.Trace(_instance, _algorithm, _polish);
         _marks = Enumerable.Range(1, _steps.Count - 1).Where(i => _steps[i].Phase != _steps[i - 1].Phase).ToList();
-        _distanceSeries = [new LineSeries("Distance", _steps.Select(s => (double?)s.Distance).ToList(), Palette.Series[0])];
+        _distanceSeries = IsMeta
+            ?
+            [
+                new LineSeries(_algorithm == VrpAlgorithm.Genetic ? "Population average" : "Current plan", _steps.Select(s => (double?)s.History.LastOrDefault(s.Distance)).ToList(), Palette.Series[1], true),
+                new LineSeries("Best so far", _steps.Select(s => (double?)s.BestHistory.LastOrDefault(s.Distance)).ToList(), Palette.Series[0], true),
+            ]
+            : [new LineSeries("Distance", _steps.Select(s => (double?)s.Distance).ToList(), Palette.Series[0])];
         _stepLabels = Enumerable.Range(1, _steps.Count).Select(i => i.ToString()).ToList();
-        _compare = AlgorithmOptions.Select(o =>
+        // The metaheuristics take a moment, so only recompute the comparison when the map or polish setting changes.
+        if (!_editing && _comparedFor != (_instance, _polish))
         {
-            var routes = VrpSolver.Solve(_instance, o.Value, _polish);
-            var km = VrpSolver.TotalDistance(_instance, routes);
-            return new BarDatum(o.Text, km, $"{Num.F1(km)} km", o.Value == _algorithm, $"{routes.Count} trucks, ${Palette.F(VrpSolver.Cost(_instance, routes), "0")} for the day");
-        }).ToList();
+            _comparedFor = (_instance, _polish);
+            _compare = AlgorithmOptions.Select(o =>
+            {
+                var routes = VrpSolver.Solve(_instance, o.Value, _polish);
+                var km = VrpSolver.TotalDistance(_instance, routes);
+                return new BarDatum(o.Hint ?? o.Text, km, $"{Num.F1(km)} km", false, $"{routes.Count} trucks, ${Palette.F(VrpSolver.Cost(_instance, routes), "0")} for the day");
+            }).ToList();
+        }
+
+        _compare = _compare.Select((d, i) => d with { Highlight = AlgorithmOptions[i].Value == _algorithm }).ToList();
         _version++;
         _player.Load(_steps.Count);
+        if (IsCity && !_instance.HasRoads) _ = InvokeAsync(LoadRoadsAsync);
+        else if (IsCity)
+        {
+            // Shared links carry their road distances, so there's nothing to fetch but the route shapes.
+            if (!_roadLoading && !_roadProblem) _roadStatus = "Road distances: OpenStreetMap via OSRM";
+            _ = InvokeAsync(LoadShapesAsync);
+        }
     }
 
     private void SetAlgorithm(VrpAlgorithm algorithm)
@@ -197,7 +509,12 @@
 
     private void SetMap(ChangeEventArgs e)
     {
-        _clustered = e.Value?.ToString() == "clustered";
+        var value = e.Value?.ToString() ?? "uniform";
+        if (value == "shared") return;
+        _city = value.StartsWith("city:", StringComparison.Ordinal) ? value[5..] : null;
+        if (_city is null) _clustered = value == "clustered";
+        _shared = false;
+        _editing = false;
         Rebuild(newInstance: true);
     }
 
@@ -205,12 +522,14 @@
     {
         if (!int.TryParse(e.Value?.ToString(), out var count)) return;
         _count = count;
+        _shared = false;
         Rebuild(newInstance: true);
     }
 
     private void Reroll()
     {
         _seed = Random.Shared.Next(1, 100_000);
+        _shared = false;
         Rebuild(newInstance: true);
     }
 
@@ -231,10 +550,12 @@
     private object SceneState()
     {
         var step = Step;
+        // The 3D city is a 20 × 20 km plate; real-city boxes are smaller, so stretch them to fill it.
+        var k = IsCity ? 20 / (2 * Math.Max(_instance.DepotX, _instance.DepotY)) : 1;
         return new
         {
-            depot = new[] { _instance.DepotX, _instance.DepotY },
-            customers = _instance.Customers.Select(c => new { id = c.Id, x = c.X, y = c.Y, demand = c.Demand }),
+            depot = new[] { _instance.DepotX * k, _instance.DepotY * k },
+            customers = _instance.Customers.Select(c => new { id = c.Id, x = c.X * k, y = c.Y * k, demand = c.Demand }),
             routes = step.Routes.Select((r, i) => new { index = i, color = step.Colors.Count > i ? step.Colors[i] : i, stops = r }),
             focus = step.Focus,
             link = step.Link,

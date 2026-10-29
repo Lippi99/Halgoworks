@@ -1,0 +1,65 @@
+@using Halgoworks.Core.Knapsack
+
+<dl class="scale-figures">
+    <div><dt>Value</dt><dd>@_value.ToString("#,0", CultureInfo.InvariantCulture)</dd></div>
+    <div><dt>Weight used</dt><dd>@_weight.ToString("#,0", CultureInfo.InvariantCulture) <small class="muted">/ @Instance.Capacity.ToString("#,0", CultureInfo.InvariantCulture) kg</small></dd></div>
+    <div><dt>Items packed</dt><dd>@Chosen.Count <small class="muted">of @Instance.Items.Count</small></dd></div>
+</dl>
+
+<svg class="viz" viewBox="0 0 @W @BarH" role="img" aria-label="@($"Knapsack filled to {_weight} of {Instance.Capacity} kg")">
+    <rect x="0" y="0" width="@W" height="@BarH" rx="6" fill="@Palette.Ink0" stroke="@Palette.Line" />
+    @{
+        double x = 0;
+    }
+    @foreach (var i in _byDensity.Where(_chosen.Contains))
+    {
+        var item = Instance.Items[i];
+        var w = (double)item.Weight / Instance.Capacity * W;
+        <rect x="@F(x + 0.5)" y="1" width="@F(Math.Max(0.5, w - 1))" height="@(BarH - 2)" fill="@Palette.RampAt(T(item))"><title>@Describe(item)</title></rect>
+        x += w;
+    }
+</svg>
+
+<svg class="viz" viewBox="0 0 @W @GridH" role="img" aria-label="Every item, densest first; packed items are colored">
+    @for (var k = 0; k < _byDensity.Count; k++)
+    {
+        var item = Instance.Items[_byDensity[k]];
+        var (col, row) = (k % Cols, k / Cols);
+        var on = _chosen.Contains(item.Id);
+        <rect x="@F(col * Cell + 1)" y="@F(row * Cell + 1)" width="@F(Cell - 3)" height="@F(Cell - 3)" rx="3"
+              fill="@(on ? Palette.RampAt(T(item)) : Palette.Muted)" opacity="@(on ? "1" : "0.55")"><title>@Describe(item)@(on ? ", packed" : ", left out")</title></rect>
+    }
+</svg>
+<p class="muted small">Each square is one item, sorted by value per kg from the top left. Greedy by density packs a prefix of this order until something doesn't fit; the optimum usually skips a few dense items to use the space better.</p>
+
+@code {
+    [Parameter, EditorRequired] public KnapsackInstance Instance { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<int> Chosen { get; set; } = [];
+
+    private const int W = 1000;
+    private const int BarH = 46;
+    private const int Cols = 25;
+    private const double Cell = W / (double)Cols;
+    private int GridH => (int)Math.Ceiling(Instance.Items.Count / (double)Cols) * (int)Cell;
+
+    private HashSet<int> _chosen = [];
+    private List<int> _byDensity = [];
+    private double _min, _max;
+    private int _value, _weight;
+
+    protected override void OnParametersSet()
+    {
+        _chosen = [.. Chosen];
+        _byDensity = Enumerable.Range(0, Instance.Items.Count).OrderByDescending(i => Instance.Items[i].Density).ToList();
+        _min = Instance.Items.Min(i => i.Density);
+        _max = Instance.Items.Max(i => i.Density);
+        _value = Chosen.Sum(i => Instance.Items[i].Value);
+        _weight = Chosen.Sum(i => Instance.Items[i].Weight);
+    }
+
+    private double T(KnapsackItem item) => _max - _min < 1e-9 ? 1 : 0.15 + 0.85 * (item.Density - _min) / (_max - _min);
+
+    private static string Describe(KnapsackItem item) => $"{item.Name}: {item.Weight} kg, value {item.Value} ({Num.F2(item.Density)}/kg)";
+
+    private static string F(double v) => Palette.F(v, "0.##");
+}

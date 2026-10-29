@@ -1,0 +1,58 @@
+@inject IJSRuntime JS
+
+<div class="share">
+    <button type="button" class="btn" @onclick="Copy" title="Copy a link to this exact example, algorithm and step">
+        <Icon Name="link" />@(_copied ? "Link copied" : "Copy link")
+    </button>
+    @if (_fallback is not null)
+    {
+        <label class="share-fallback">
+            <span>Copy this link:</span>
+            <input class="input" readonly value="@_fallback" @onfocus="SelectAll" @ref="_input" />
+        </label>
+    }
+</div>
+
+@code {
+    /// <summary>Builds the link at the moment the button is pressed, so it captures the current step.</summary>
+    [Parameter, EditorRequired] public Func<string> Url { get; set; } = default!;
+
+    private IJSObjectReference? _module;
+    private ElementReference _input;
+    private bool _copied;
+    private string? _fallback;
+    private CancellationTokenSource? _reset;
+
+    private async Task Copy()
+    {
+        var url = Url();
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/site.js");
+        if (await _module.InvokeAsync<bool>("copyText", url))
+        {
+            _fallback = null;
+            _copied = true;
+            _reset?.Cancel();
+            _reset = new CancellationTokenSource();
+            var token = _reset.Token;
+            StateHasChanged();
+            try
+            {
+                await Task.Delay(2200, token);
+                _copied = false;
+            }
+            catch (TaskCanceledException)
+            {
+            }
+        }
+        else
+        {
+            // Clipboard access can be blocked (insecure origin, permissions): show the link to copy by hand.
+            _fallback = url;
+        }
+    }
+
+    private async Task SelectAll()
+    {
+        if (_module is not null) await _module.InvokeVoidAsync("selectAll", _input);
+    }
+}

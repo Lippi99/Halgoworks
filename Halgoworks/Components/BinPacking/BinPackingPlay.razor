@@ -1,0 +1,212 @@
+@using Halgoworks.Core.BinPacking
+
+<div class="stage">
+    <div class="stage-head">
+        <ul class="legend">
+            <li>Drag an item onto a bin, or click the item and then the bin. Drop it on "New bin" to open one. Click a packed item and then the shelf to take it back out.</li>
+        </ul>
+    </div>
+    <div class="stage-body">
+        <div class="shelf drop-zone @(_over == -2 ? "over" : null)" aria-label="Items to pack"
+             @ondragover:preventDefault @ondragenter="() => _over = -2" @ondragleave="() => _over = null" @ondrop="() => Drop(-2)" @onclick="() => Place(-2)">
+            <span class="queue-label">@(Unplaced.Count == 0 ? "Everything is packed" : $"To pack: {Unplaced.Count}")</span>
+            @foreach (var id in Unplaced)
+            {
+                <span class="queue-item draggable @(_selected == id ? "focus" : null)" draggable="true" tabindex="0" role="button"
+                      style="width: @Palette.F(26 + 92.0 * Size(id) / Instance.Capacity, "0")px; background: @Palette.SizeClass[Cls(id)]; color: @(Cls(id) == 2 ? Palette.Ink0 : "#fff")"
+                      title="@($"Item #{id + 1}, size {Size(id)}")"
+                      @ondragstart="() => _dragging = id" @onclick="() => Select(id)" @onclick:stopPropagation @onkeydown="e => Key(e, id)">@Size(id)</span>
+            }
+        </div>
+
+        <div class="play-bins">
+            @for (var b = 0; b <= _bins.Count; b++)
+            {
+                var bin = b;
+                var isNew = b == _bins.Count;
+                var used = isNew ? 0 : _bins[b].Sum(Size);
+                <div class="play-bin-wrap">
+                    <div class="play-bin drop-zone @(isNew ? "new" : null) @(_over == bin ? "over" : null) @(_selected is { } s && !isNew && used + Size(s) > Instance.Capacity && !_bins[b].Contains(s) ? "full" : null)"
+                         role="button" tabindex="0" aria-label="@(isNew ? "Open a new bin" : $"Bin {b + 1}, {used} of {Instance.Capacity} used")"
+                         @ondragover:preventDefault @ondragenter="() => _over = bin" @ondragleave="() => _over = null" @ondrop="() => Drop(bin)"
+                         @onclick="() => Place(bin)" @onkeydown="e => BinKey(e, bin)">
+                        @if (!isNew)
+                        {
+                            @foreach (var id in _bins[b])
+                            {
+                                <span class="play-block draggable @(_selected == id ? "focus" : null)" draggable="true"
+                                      style="height: calc(@Palette.F(100.0 * Size(id) / Instance.Capacity, "0.##")% - 2px); background: @Palette.SizeClass[Cls(id)]; color: @(Cls(id) == 2 ? Palette.Ink0 : "#fff")"
+                                      title="@($"Item #{id + 1}, size {Size(id)}")"
+                                      @ondragstart="() => _dragging = id" @onclick="() => Select(id)" @onclick:stopPropagation>@Size(id)</span>
+                            }
+                        }
+                        else
+                        {
+                            <span class="play-new">+ New bin</span>
+                        }
+                    </div>
+                    <span class="play-bin-label">@(isNew ? "" : $"bin {b + 1}: {Instance.Capacity - used} free")</span>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<PlayPanel Title="Use as few bins as you can" Message="@_message" MessageIsProblem="_problem" CanCheck="Unplaced.Count == 0" Checked="_checked" Verdict="@_verdict"
+           Comparison="_comparison" Refs="_refs" OnCheck="Check" OnShowBest="ShowBest" OnReset="Reset">
+    <Instructions>
+        Pack all @Instance.Items.Count items into bins of size @Instance.Capacity, using as few bins as possible. No packing can use fewer than
+        @Instance.LowerBound bins: the items add up to @Instance.TotalSize.
+    </Instructions>
+    <Status>
+        <dl class="play-figures">
+            <div><dt>Bins used</dt><dd>@_bins.Count</dd></div>
+            <div><dt>Still to pack</dt><dd>@Unplaced.Count</dd></div>
+        </dl>
+    </Status>
+</PlayPanel>
+
+@code {
+    [Parameter, EditorRequired] public BinPackingInstance Instance { get; set; } = default!;
+
+    /// <summary>The bin of each item, comma-separated, -1 when unpacked. For share links.</summary>
+    [Parameter] public string? State { get; set; }
+
+    [Parameter] public EventCallback<string> StateChanged { get; set; }
+
+    private List<List<int>> _bins = [];
+    private BinPackingInstance? _loaded;
+    private Dictionary<int, int> _size = [];
+    private int? _selected;
+    private int? _dragging;
+    private int? _over;
+    private string? _message;
+    private bool _problem;
+    private bool _checked;
+    private string _verdict = "";
+    private IReadOnlyList<BarDatum> _comparison = [];
+    private IReadOnlyList<RefLine> _refs = [];
+
+    private int Size(int id) => _size[id];
+    private int Cls(int id) => Size(id) * 2 > Instance.Capacity ? 2 : Size(id) * 3 > Instance.Capacity ? 1 : 0;
+    private List<int> Unplaced => Instance.Items.Select(i => i.Id).Where(id => !_bins.Any(b => b.Contains(id))).ToList();
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_loaded, Instance)) return;
+        _loaded = Instance;
+        _size = Instance.Items.ToDictionary(i => i.Id, i => i.Size);
+        _bins = [];
+        _checked = false;
+        _message = null;
+        var parts = (State ?? "").Split(',');
+        if (parts.Length != Instance.Items.Count) return;
+        for (var id = 0; id < parts.Length; id++)
+        {
+            if (!int.TryParse(parts[id], out var b) || b < 0 || b > 30) continue;
+            while (_bins.Count <= b) _bins.Add([]);
+            if (_bins[b].Sum(Size) + Size(id) <= Instance.Capacity) _bins[b].Add(id);
+        }
+
+        _bins.RemoveAll(b => b.Count == 0);
+    }
+
+    private void Select(int id)
+    {
+        _selected = _selected == id ? null : id;
+        _message = _selected is null ? null : $"Item #{id + 1} (size {Size(id)}) selected. Click a bin to put it there.";
+        _problem = false;
+    }
+
+    private async Task Key(KeyboardEventArgs e, int id)
+    {
+        if (e.Key is "Enter" or " ") Select(id);
+        await Task.CompletedTask;
+    }
+
+    private async Task BinKey(KeyboardEventArgs e, int bin)
+    {
+        if (e.Key is "Enter" or " ") await Place(bin);
+    }
+
+    private async Task Drop(int target)
+    {
+        _over = null;
+        if (_dragging is { } id)
+        {
+            _selected = id;
+            await Place(target);
+        }
+
+        _dragging = null;
+    }
+
+    // target: a bin index, _bins.Count for a new bin, or -2 for the shelf.
+    private async Task Place(int target)
+    {
+        if (_selected is not { } id) return;
+        var from = _bins.FindIndex(b => b.Contains(id));
+        if (target == from) return;
+        if (target >= 0 && target < _bins.Count && _bins[target].Sum(Size) + Size(id) > Instance.Capacity)
+        {
+            _message = $"Item #{id + 1} has size {Size(id)}, but bin {target + 1} only has {Instance.Capacity - _bins[target].Sum(Size)} free.";
+            _problem = true;
+            return;
+        }
+
+        if (from >= 0) _bins[from].Remove(id);
+        if (target == _bins.Count) _bins.Add([id]);
+        else if (target >= 0) _bins[target].Add(id);
+        _bins.RemoveAll(b => b.Count == 0);
+        _message = target == -2 ? $"Item #{id + 1} is back on the shelf." : null;
+        _problem = false;
+        _selected = null;
+        _checked = false;
+        await Save();
+    }
+
+    private Task Save()
+    {
+        var binOf = Instance.Items.Select(i => _bins.FindIndex(b => b.Contains(i.Id)).ToString(CultureInfo.InvariantCulture));
+        return StateChanged.InvokeAsync(string.Join(",", binOf));
+    }
+
+    private void Check()
+    {
+        var optimum = BinPackingSolver.Optimal(Instance);
+        var rules = BinPackingSolver.Rules.Select(r => (Rule: r, Bins: BinPackingSolver.Solve(Instance, r).Count)).ToList();
+        var bestRule = rules.Min(r => r.Bins);
+        var you = _bins.Count;
+        _verdict = optimum is { } opt && you == opt
+            ? $"**{you} bins: that's optimal.** {(you < bestRule ? $"You beat every rule; the best of them needs {bestRule}." : "No packing can do better.")}"
+            : you <= bestRule
+                ? $"**{you} bins**, as good as the best rule ({bestRule}).{(optimum is { } o ? $" The optimum is {o}." : "")}"
+                : $"**{you} bins.** The best rule needs {bestRule}{(optimum is { } o2 ? $" and the optimum is {o2}" : "")}. Try packing the large items first.";
+        _comparison = [new BarDatum("You", you, $"{you}", true), .. rules.Select(r => new BarDatum(BinPackingSolver.ShortName(r.Rule), r.Bins, $"{r.Bins}", false))];
+        _refs = optimum == Instance.LowerBound || optimum is null
+            ? [new RefLine(optimum is null ? "Lower bound" : "Lower bound = optimum", Instance.LowerBound)]
+            : [new RefLine("Lower bound", Instance.LowerBound), new RefLine("Optimum", optimum.Value)];
+        _checked = true;
+        _message = null;
+    }
+
+    private Task ShowBest()
+    {
+        var packing = BinPackingSolver.OptimalPacking(Instance) ?? BinPackingSolver.Solve(Instance, BinRule.FirstFitDecreasing);
+        _bins = packing.Select(b => b.ToList()).ToList();
+        Check();
+        _message = $"An optimal packing: {_bins.Count} bins, found by exhaustive search.";
+        _problem = false;
+        return Save();
+    }
+
+    private Task Reset()
+    {
+        _bins = [];
+        _selected = null;
+        _checked = false;
+        _message = "All items are back on the shelf.";
+        _problem = false;
+        return Save();
+    }
+}

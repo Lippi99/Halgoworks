@@ -1,0 +1,200 @@
+@using Halgoworks.Core.Vrp
+
+<div class="stage">
+    <div class="stage-head">
+        <ul class="legend">
+            <li>Click customers in the order truck @(_routes.Count) should visit them. Click its last stop again to undo it.</li>
+        </ul>
+        <span class="spacer"></span>
+        <button type="button" class="btn small" disabled="@(Current.Count == 0)" @onclick="NewTruck">New truck</button>
+        <button type="button" class="btn small" disabled="@(_routes.All(r => r.Count == 0))" @onclick="Undo">Undo last stop</button>
+    </div>
+    <div class="stage-body">
+        <div class="vrp-grid">
+            <VrpMap Instance="Instance" Step="AsStep()" OnCustomerClick="Visit" />
+            <RouteList Instance="Instance" Step="AsStep()" />
+        </div>
+    </div>
+</div>
+
+<PlayPanel Title="Plan the deliveries" Message="@_message" MessageIsProblem="_problem" CanCheck="Unserved == 0" Checked="_checked" Verdict="@_verdict"
+           Comparison="_comparison" TickFormat="@(v => $"{Palette.F(v)} km")" OnCheck="Check" OnShowBest="ShowBest" OnReset="Reset">
+    <Instructions>
+        Serve all @Instance.Customers.Count customers with as little driving as possible. Each truck carries @Instance.Capacity units
+        @(Instance.UseDeadlines ? "and must reach every stop before its deadline (hover a customer to see it)." : ".")
+        Every truck starts and ends at the depot.
+    </Instructions>
+    <Status>
+        <dl class="play-figures">
+            <div><dt>Distance</dt><dd>@Num.F1(Distance) <small class="muted">km</small></dd></div>
+            <div><dt>Still to serve</dt><dd>@Unserved</dd></div>
+            <div><dt>Trucks</dt><dd>@_routes.Count(r => r.Count > 0)</dd></div>
+            <div><dt>Truck @(_routes.Count) load</dt><dd>@Load(Current) <small class="muted">/ @Instance.Capacity</small></dd></div>
+        </dl>
+    </Status>
+</PlayPanel>
+
+@code {
+    [Parameter, EditorRequired] public VrpInstance Instance { get; set; } = default!;
+
+    /// <summary>Routes as "3.5.1|2.4", for share links.</summary>
+    [Parameter] public string? State { get; set; }
+
+    [Parameter] public EventCallback<string> StateChanged { get; set; }
+
+    private static readonly (VrpAlgorithm Algorithm, string Name)[] Algorithms =
+    [
+        (VrpAlgorithm.Savings, "Clarke–Wright savings"), (VrpAlgorithm.Sweep, "Sweep"), (VrpAlgorithm.NearestNeighbor, "Nearest neighbor"),
+        (VrpAlgorithm.SimulatedAnnealing, "Simulated annealing"), (VrpAlgorithm.Genetic, "Genetic algorithm"),
+    ];
+
+    private List<List<int>> _routes = [[]];
+    private VrpInstance? _loaded;
+    private List<(string Name, IReadOnlyList<int[]> Routes, double Km)>? _results;
+    private string? _message;
+    private bool _problem;
+    private bool _checked;
+    private string _verdict = "";
+    private IReadOnlyList<BarDatum> _comparison = [];
+
+    private List<int> Current => _routes[^1];
+    private int Unserved => Instance.Customers.Count - _routes.Sum(r => r.Count);
+    private double Distance => VrpSolver.TotalDistance(Instance, _routes.Where(r => r.Count > 0).Select(r => (IReadOnlyList<int>)r));
+    private int Load(List<int> route) => route.Sum(c => Instance[c].Demand);
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_loaded, Instance)) return;
+        _loaded = Instance;
+        _results = null;
+        _checked = false;
+        _message = null;
+        _routes = [];
+        var seen = new HashSet<int>();
+        foreach (var part in (State ?? "").Split('|', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var route = new List<int>();
+            foreach (var stop in part.Split('.'))
+            {
+                if (!int.TryParse(stop, out var c) || c < 1 || c > Instance.Customers.Count || !seen.Add(c)) continue;
+                if (!VrpSolver.Feasible(Instance, [.. route, c])) continue;
+                route.Add(c);
+            }
+
+            if (route.Count > 0) _routes.Add(route);
+        }
+
+        if (_routes.Count == 0) _routes.Add([]);
+    }
+
+    private VrpStep AsStep()
+    {
+        var live = Enumerable.Range(0, _routes.Count).Where(r => _routes[r].Count > 0).ToList();
+        return new VrpStep
+        {
+            Routes = live.Select(r => _routes[r].ToArray()).ToList(),
+            Colors = live,
+            Focus = Current.Count > 0 ? [Current[^1]] : [],
+            Active = Current.Count > 0 ? live.Count - 1 : null,
+        };
+    }
+
+    private Task Visit(int c)
+    {
+        _checked = false;
+        if (Current.Count > 0 && Current[^1] == c) return Undo();
+        var on = _routes.FindIndex(r => r.Contains(c));
+        if (on >= 0)
+        {
+            Say($"C{c} is already on truck {on + 1}. Click the current truck's last stop to undo it.", true);
+            return Task.CompletedTask;
+        }
+
+        var next = new List<int>(Current) { c };
+        var stats = VrpSolver.Evaluate(Instance, next);
+        if (stats.Load > Instance.Capacity)
+        {
+            Say($"C{c} needs {Instance[c].Demand}, but truck {_routes.Count} only has {Instance.Capacity - Load(Current)} left. Start a new truck.", true);
+            return Task.CompletedTask;
+        }
+
+        if (!stats.OnTime)
+        {
+            Say($"Truck {_routes.Count} would reach C{c} at {VrpInstance.Clock(stats.Arrivals[^1])}, after its {VrpInstance.Clock(Instance[c].Deadline)} deadline.", true);
+            return Task.CompletedTask;
+        }
+
+        Current.Add(c);
+        Say(Unserved == 0 ? "Every customer is served. Check your plan!" : $"Truck {_routes.Count} drives to C{c}.", false);
+        return Save();
+    }
+
+    private Task NewTruck()
+    {
+        _routes.Add([]);
+        Say($"Truck {_routes.Count} is ready at the depot.", false);
+        return Task.CompletedTask;
+    }
+
+    private Task Undo()
+    {
+        if (Current.Count == 0 && _routes.Count > 1) _routes.RemoveAt(_routes.Count - 1);
+        if (Current.Count == 0) return Task.CompletedTask;
+        var c = Current[^1];
+        Current.RemoveAt(Current.Count - 1);
+        _checked = false;
+        Say($"Took C{c} off truck {_routes.Count}.", false);
+        return Save();
+    }
+
+    private void Say(string message, bool problem)
+    {
+        _message = message;
+        _problem = problem;
+    }
+
+    private Task Save() => StateChanged.InvokeAsync(string.Join("|", _routes.Where(r => r.Count > 0).Select(r => string.Join(".", r))));
+
+    private List<(string Name, IReadOnlyList<int[]> Routes, double Km)> Results() => _results ??= Algorithms
+        .Select(a =>
+        {
+            var routes = VrpSolver.Solve(Instance, a.Algorithm, polish: true);
+            return (a.Name, routes, VrpSolver.TotalDistance(Instance, routes));
+        })
+        .ToList();
+
+    private void Check()
+    {
+        var results = Results();
+        var you = Distance;
+        var best = results.MinBy(r => r.Km);
+        var beaten = results.Count(r => you < r.Km - 1e-6);
+        _verdict = beaten == results.Count
+            ? $"**{Num.F1(you)} km: you beat every algorithm here**, including {best.Name.ToLowerInvariant()} ({Num.F1(best.Km)} km)."
+            : beaten > 0
+                ? $"**{Num.F1(you)} km.** You beat {beaten} of {results.Count} algorithms; the best, {best.Name.ToLowerInvariant()}, drives {Num.F1(best.Km)} km."
+                : $"**{Num.F1(you)} km.** Every algorithm found a shorter plan; the best, {best.Name.ToLowerInvariant()}, drives {Num.F1(best.Km)} km. Look for routes that cross each other.";
+        _comparison = [new BarDatum("You", you, $"{Num.F1(you)} km", true, $"{_routes.Count(r => r.Count > 0)} trucks"),
+            .. results.Select(r => new BarDatum(r.Name, r.Km, $"{Num.F1(r.Km)} km", false, $"{r.Routes.Count} trucks"))];
+        _checked = true;
+        _message = null;
+    }
+
+    private Task ShowBest()
+    {
+        var best = Results().MinBy(r => r.Km);
+        _routes = best.Routes.Select(r => r.ToList()).ToList();
+        Check();
+        _verdict = $"This is **{best.Name.ToLowerInvariant()}'s plan, {Num.F1(best.Km)} km**, the shortest of the five algorithms. It isn't proven optimal: try to beat it.";
+        Say("Showing the best algorithm's plan. Start over to try your own.", false);
+        return Save();
+    }
+
+    private Task Reset()
+    {
+        _routes = [[]];
+        _checked = false;
+        Say("All trucks are back at the depot.", false);
+        return Save();
+    }
+}

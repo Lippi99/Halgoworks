@@ -1,0 +1,38 @@
+@using Halgoworks.Core.JobShop
+
+<RaceView TStep="JobShopStep" Entries="_entries" Build="Build" Version="Version" ScoreLabel="Makespan so far" LowerIsBetter="true"
+          Format="@(v => Palette.F(v))" Selected="Selected" SelectedChanged="SelectedChanged">
+    <Lane>
+        <GanttChart Instance="Instance" Step="context.Step" Horizon="_horizon" MinWidth="380" />
+    </Lane>
+</RaceView>
+
+@code {
+    [Parameter, EditorRequired] public JobShopInstance Instance { get; set; } = default!;
+    [Parameter] public int Version { get; set; }
+    [Parameter] public IReadOnlyList<string>? Selected { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<string>> SelectedChanged { get; set; }
+
+    private const string Tabu = "tabu";
+    private IReadOnlyList<RaceEntry> _entries = [];
+    private int _horizon = 10;
+    private JobShopInstance? _loaded;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_loaded, Instance)) return;
+        _loaded = Instance;
+        var rules = JobShopSolver.Rules.Where(r => r != DispatchRule.Edd || Instance.HasDueDates).ToList();
+        _entries = [new RaceEntry(Tabu, "Tabu search"), .. rules.Select(r => new RaceEntry(r.ToString(), $"{JobShopSolver.Short(r)}: {JobShopSolver.Describe(r)}"))];
+        // One time axis for every lane, wide enough for the slowest rule, so the bars can be compared by eye.
+        var latest = rules.Max(r => JobShopSolver.Makespan(JobShopSolver.Solve(Instance, r)));
+        _horizon = (int)Math.Ceiling(latest * 1.04) + 1;
+    }
+
+    private RaceLane<JobShopStep> Build(string key)
+    {
+        var steps = key == Tabu ? JobShopSolver.TraceTabu(Instance) : JobShopSolver.TraceDispatch(Instance, Enum.Parse<DispatchRule>(key));
+        var name = key == Tabu ? "Tabu search" : JobShopSolver.Short(Enum.Parse<DispatchRule>(key));
+        return new RaceLane<JobShopStep>(key, name, steps, s => s.Makespan > 0 ? s.Makespan : null);
+    }
+}

@@ -1,0 +1,53 @@
+@* The side panel in Play mode: how to play, the live score, and the verdict once the player checks their answer. *@
+
+<aside class="side play-panel" aria-label="Your turn">
+    <div class="side-section">
+        <div class="step-meta"><span class="step-phase">Your turn</span></div>
+        <h2 class="step-title">@Title</h2>
+        <div class="step-text">@Instructions</div>
+    </div>
+
+    <div class="side-section" aria-live="polite">
+        @Status
+        @if (Message is not null)
+        {
+            <p class="play-message @(MessageIsProblem ? "bad" : "ok")">@Message</p>
+        }
+        <div class="play-actions">
+            <button type="button" class="btn primary" disabled="@(!CanCheck)" @onclick="OnCheck">Check my solution</button>
+            <button type="button" class="btn" @onclick="OnShowBest">Show the best solution</button>
+            <button type="button" class="btn" @onclick="OnReset">Start over</button>
+        </div>
+    </div>
+
+    @if (Checked)
+    {
+        <div class="side-section">
+            <div class="side-label"><strong>How you did</strong></div>
+            <p class="play-verdict">@Rich.Render(Verdict)</p>
+            <BarChart Data="Comparison" Refs="Refs" Min="0" AriaLabel="Your result compared with the algorithms" TickFormat="TickFormat" />
+        </div>
+    }
+</aside>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Beat the algorithm";
+    [Parameter] public RenderFragment? Instructions { get; set; }
+
+    /// <summary>Live figures for the player's current solution.</summary>
+    [Parameter] public RenderFragment? Status { get; set; }
+
+    /// <summary>Feedback on the last action, such as why a move was refused.</summary>
+    [Parameter] public string? Message { get; set; }
+
+    [Parameter] public bool MessageIsProblem { get; set; }
+    [Parameter] public bool CanCheck { get; set; }
+    [Parameter] public bool Checked { get; set; }
+    [Parameter] public string Verdict { get; set; } = "";
+    [Parameter] public IReadOnlyList<BarDatum> Comparison { get; set; } = [];
+    [Parameter] public IReadOnlyList<RefLine> Refs { get; set; } = [];
+    [Parameter] public Func<double, string>? TickFormat { get; set; }
+    [Parameter] public EventCallback OnCheck { get; set; }
+    [Parameter] public EventCallback OnShowBest { get; set; }
+    [Parameter] public EventCallback OnReset { get; set; }
+}

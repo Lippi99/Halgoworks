@@ -1,0 +1,101 @@
+@using Halgoworks.Core.MaxFlow
+
+<aside class="side edit-panel" aria-label="Edit the network">
+    <div class="side-section">
+        <div class="step-meta"><span class="step-phase">Editing</span></div>
+        <h2 class="step-title">Make it your own</h2>
+        <p class="edit-hint" style="margin-top: 8px">
+            Drag nodes to move them. Click an edge's label to change its capacity, or a node to select it.
+            Every change re-runs the algorithm; the view jumps to its result.
+        </p>
+    </div>
+
+    <div class="side-section">
+        @if (AddingFrom is { } from)
+        {
+            <p class="play-message ok">
+                @(from < 0 ? "Click the node the new edge starts from." : $"From {Network.Nodes[from].Label}: now click the node it goes to.")
+            </p>
+            <div class="play-actions"><button type="button" class="btn small" @onclick="() => AddingFromChanged.InvokeAsync(null)">Cancel</button></div>
+        }
+        else
+        {
+            <div class="play-actions">
+                <button type="button" class="btn small" disabled="@(Network.Edges.Count >= 40)" @onclick="() => AddingFromChanged.InvokeAsync(-1)">Add an edge</button>
+                <button type="button" class="btn small" disabled="@(Network.Nodes.Count >= 14)" @onclick="AddNode">Add a node</button>
+            </div>
+        }
+    </div>
+
+    @if (SelectedEdge is { } edgeId && edgeId < Network.Edges.Count)
+    {
+        var edge = Network.Edges[edgeId];
+        <div class="side-section">
+            <h3>Edge @Network.Nodes[edge.From].Label → @Network.Nodes[edge.To].Label</h3>
+            <div class="edit-row">
+                <span>Capacity</span>
+                <Stepper Value="edge.Capacity" Min="1" Max="999" Label="capacity"
+                         ValueChanged="v => Emit(Network with { Edges = Network.Edges.Select(e => e.Id == edgeId ? e with { Capacity = v } : e).ToList() })" />
+            </div>
+            <div class="play-actions">
+                <button type="button" class="btn small" disabled="@(Network.Edges.Count <= 1)" @onclick="() => DeleteEdge(edgeId)">Delete this edge</button>
+            </div>
+        </div>
+    }
+    else if (SelectedNode is { } nodeId && nodeId < Network.Nodes.Count)
+    {
+        var node = Network.Nodes[nodeId];
+        var terminal = nodeId == Network.Source || nodeId == Network.Sink;
+        <div class="side-section">
+            <h3>Node @node.Label</h3>
+            <p class="edit-hint">@(terminal ? "The source and sink can be moved but not deleted." : $"{Network.Edges.Count(e => e.From == nodeId || e.To == nodeId)} edges touch it.")</p>
+            @if (!terminal)
+            {
+                <div class="play-actions">
+                    <button type="button" class="btn small" @onclick="() => DeleteNode(nodeId)">Delete this node and its edges</button>
+                </div>
+            }
+        </div>
+    }
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public FlowNetwork Network { get; set; } = default!;
+    [Parameter] public int? SelectedNode { get; set; }
+    [Parameter] public int? SelectedEdge { get; set; }
+
+    /// <summary>While adding an edge: -1 waits for the first node, otherwise the edge's start.</summary>
+    [Parameter] public int? AddingFrom { get; set; }
+
+    [Parameter] public EventCallback<int?> AddingFromChanged { get; set; }
+    [Parameter] public EventCallback<FlowNetwork> Changed { get; set; }
+    [Parameter] public EventCallback ClearSelection { get; set; }
+
+    private Task Emit(FlowNetwork network) => Changed.InvokeAsync(network);
+
+    private async Task DeleteEdge(int id)
+    {
+        await ClearSelection.InvokeAsync();
+        await Emit(Network with { Edges = Network.Edges.Where(e => e.Id != id).Select((e, k) => e with { Id = k }).ToList() });
+    }
+
+    private async Task DeleteNode(int id)
+    {
+        int Map(int v) => v > id ? v - 1 : v;
+        var nodes = Network.Nodes.Where(n => n.Id != id).Select(n => n with { Id = Map(n.Id) }).ToList();
+        var edges = Network.Edges.Where(e => e.From != id && e.To != id).Select((e, k) => e with { Id = k, From = Map(e.From), To = Map(e.To) }).ToList();
+        if (edges.Count == 0) return;
+        await ClearSelection.InvokeAsync();
+        await Emit(Network with { Nodes = nodes, Edges = edges, Source = Map(Network.Source), Sink = Map(Network.Sink) });
+    }
+
+    private Task AddNode()
+    {
+        var used = Network.Nodes.Select(n => n.Label).ToHashSet();
+        var label = Enumerable.Range(0, 26).Select(i => ((char)('a' + i)).ToString()).First(l => !used.Contains(l));
+        // Drop it on the spot farthest from every existing node, so it's easy to grab.
+        var spots = from x in Enumerable.Range(1, 9) from y in Enumerable.Range(0, 5) select (X: x / 10.0, Y: y / 4.0);
+        var spot = spots.MaxBy(s => Network.Nodes.Min(n => (n.X - s.X) * (n.X - s.X) + (n.Y - s.Y) * (n.Y - s.Y)));
+        return Emit(Network with { Nodes = [.. Network.Nodes, new FlowNode(Network.Nodes.Count, label, spot.X, spot.Y)] });
+    }
+}

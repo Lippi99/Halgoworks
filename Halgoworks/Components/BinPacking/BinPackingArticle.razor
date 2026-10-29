@@ -96,6 +96,21 @@
         </p>
     </section>
 
+    <section id="integer-program">
+        <h2>As an integer program</h2>
+        <p>
+            Pick "Integer program" in the lab to watch the formal model above being solved the way commercial solvers do it: relax every x and y to any value
+            between 0 and 1, solve that linear program with the simplex method, and branch on a variable that came out fractional. The item-by-bin table shows the
+            relaxation literally splitting an item between two bins, something no real packing can do.
+        </p>
+        <p>
+            The model includes two tricks that matter a lot in practice. Item <i>i</i> may only use bins 1 to <i>i</i>, and bins are opened in order. Without them, every
+            packing would appear many times with the bins merely renumbered, and the search would waste most of its time proving the same thing again.
+            Even so, the assignment model's relaxation is weak (it just says "you need total size ÷ capacity bins"), which is why the view is limited to a few items
+            and why serious solvers switch to the pattern-based formulation described below.
+        </p>
+    </section>
+
     <section id="beyond">
         <h2>Beyond this lab</h2>
         <ul>
@@ -124,6 +139,7 @@
         ("hard", "Why it's hard"),
         ("structures", "Data structures"),
         ("algorithms", "The algorithms"),
+        ("integer-program", "As an integer program"),
         ("beyond", "Beyond this lab"),
         ("history", "A little history"),
     ];

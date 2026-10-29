@@ -1,0 +1,53 @@
+@using Halgoworks.Core.Knapsack
+
+<RaceView TStep="KnapsackStep" Entries="Entries" Build="Build" Version="Version" ScoreLabel="Best value so far" Selected="Selected" SelectedChanged="SelectedChanged">
+    <Lane>
+        @if (context.Lane.Key == "dp")
+        {
+            <KnapsackTable Instance="Instance" Step="context.Step" MaxValue="_optimum" />
+        }
+        else if (context.Lane.Key == "bnb")
+        {
+            <p class="tree-stats">Nodes explored: <strong class="num">@context.Step.Tree.Count</strong></p>
+            <SearchTreeView Tree="context.Step.Tree" Layout="context.Lane.Steps[^1].Tree" FocusNode="context.Step.FocusNode" BestNode="context.Step.BestNode" />
+        }
+        else
+        {
+            <KnapsackItems Instance="Instance" Step="context.Step" ShowDensity="true" />
+        }
+    </Lane>
+</RaceView>
+
+@code {
+    [Parameter, EditorRequired] public KnapsackInstance Instance { get; set; } = default!;
+    [Parameter] public int Version { get; set; }
+    [Parameter] public IReadOnlyList<string>? Selected { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<string>> SelectedChanged { get; set; }
+
+    private static readonly IReadOnlyList<RaceEntry> Entries =
+    [
+        new("dp", "Dynamic programming"),
+        new("bnb", "Branch and bound"),
+        new("greedy", "Greedy by value per kg"),
+    ];
+
+    private int _optimum;
+
+    protected override void OnParametersSet() => _optimum = KnapsackSolver.Solve(Instance).Value;
+
+    private RaceLane<KnapsackStep> Build(string key) =>
+        new(key, Entries.First(e => e.Key == key).Name, KnapsackSolver.Trace(Instance, key), s => Score(key, s));
+
+    // The best packing each racer can vouch for at this step. (Greedy's last step also carries the true
+    // optimum, for comparison, so greedy is always scored by what it actually packed.)
+    private static double? Score(string key, KnapsackStep s)
+    {
+        if (key != "greedy" && s.Optimum is { } optimum) return optimum;
+        return key switch
+        {
+            "dp" => s.Table is { Length: > 0 } t ? t.Max(r => r.Length == 0 ? 0 : r.Max()) : null,
+            "bnb" => s.Tree.Where(n => n.Status == NodeStatus.Solution).Select(n => (double?)n.Value).DefaultIfEmpty(null).Max(),
+            _ => s.Total,
+        };
+    }
+}

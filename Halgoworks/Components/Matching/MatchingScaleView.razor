@@ -1,0 +1,63 @@
+@using Halgoworks.Core.Matching
+
+@* Hundreds of people at once: two columns of dots, matched pairs drawn bold, unused options faint. *@
+<svg class="viz" viewBox="0 0 @W @H" role="img" aria-label="@($"{Matched.Count} of {Instance.Left.Count} matched")">
+    <rect x="0" y="0" width="@W" height="@H" rx="8" fill="@Palette.Ink0" stroke="@Palette.Line" />
+    <text x="@LeftX" y="22" text-anchor="middle" font-size="13" font-weight="600" class="t-2">@Instance.LeftTitle</text>
+    <text x="@RightX" y="22" text-anchor="middle" font-size="13" font-weight="600" class="t-2">@Instance.RightTitle</text>
+    @for (var i = 0; i < Instance.Pairs.Count; i++)
+    {
+        if (_matched.Contains(i)) continue;
+        var p = Instance.Pairs[i];
+        <line x1="@LeftX" y1="@F(Y(p.Left, Instance.Left.Count))" x2="@RightX" y2="@F(Y(p.Right, Instance.Right.Count))" stroke="@Palette.Muted" stroke-width="0.6" opacity="0.45" />
+    }
+    @foreach (var i in Matched)
+    {
+        var p = Instance.Pairs[i];
+        <line x1="@LeftX" y1="@F(Y(p.Left, Instance.Left.Count))" x2="@RightX" y2="@F(Y(p.Right, Instance.Right.Count))" stroke="@Palette.Series[0]" stroke-width="1.6">
+            <title>@($"{Instance.Left[p.Left]} – {Instance.Right[p.Right]}")</title>
+        </line>
+    }
+    @for (var i = 0; i < Instance.Left.Count; i++)
+    {
+        var on = _left.Contains(i);
+        <circle cx="@LeftX" cy="@F(Y(i, Instance.Left.Count))" r="@F(Dot(Instance.Left.Count))" fill="@(on ? Palette.Series[0] : Palette.Ink2)" stroke="@(on ? "none" : Palette.Text3)" stroke-width="0.8"><title>@Instance.Left[i]@(on ? "" : ", unmatched")</title></circle>
+    }
+    @for (var i = 0; i < Instance.Right.Count; i++)
+    {
+        var on = _right.Contains(i);
+        <circle cx="@RightX" cy="@F(Y(i, Instance.Right.Count))" r="@F(Dot(Instance.Right.Count))" fill="@(on ? Palette.Series[0] : Palette.Ink2)" stroke="@(on ? "none" : Palette.Text3)" stroke-width="0.8"><title>@Instance.Right[i]@(on ? "" : ", unmatched")</title></circle>
+    }
+</svg>
+<dl class="scale-figures">
+    <div><dt>Matched</dt><dd>@Matched.Count <small class="muted">of @Math.Min(Instance.Left.Count, Instance.Right.Count)</small></dd></div>
+    <div><dt>@Instance.LeftTitle left out</dt><dd>@(Instance.Left.Count - _left.Count)</dd></div>
+    <div><dt>@Instance.RightTitle left out</dt><dd>@(Instance.Right.Count - _right.Count)</dd></div>
+</dl>
+
+@code {
+    [Parameter, EditorRequired] public MatchingInstance Instance { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<int> Matched { get; set; } = [];
+
+    private const int W = 1000;
+    private const int H = 620;
+    private const int LeftX = 260;
+    private const int RightX = 740;
+    private const int Top = 40;
+    private const int Bottom = 16;
+
+    private HashSet<int> _matched = [], _left = [], _right = [];
+
+    protected override void OnParametersSet()
+    {
+        _matched = [.. Matched];
+        _left = [.. Matched.Select(i => Instance.Pairs[i].Left)];
+        _right = [.. Matched.Select(i => Instance.Pairs[i].Right)];
+    }
+
+    private static double Y(int i, int count) => count == 1 ? (Top + H - Bottom) / 2.0 : Top + (H - Top - Bottom) * (double)i / (count - 1);
+
+    private static double Dot(int count) => Math.Clamp(500.0 / count, 1.6, 5);
+
+    private static string F(double v) => Palette.F(v, "0.##");
+}

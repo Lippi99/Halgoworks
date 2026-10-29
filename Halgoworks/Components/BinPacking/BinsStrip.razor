@@ -1,0 +1,47 @@
+@using Halgoworks.Core.BinPacking
+
+@* Many bins at once: one thin column per bin, items stacked bottom-up, wrapping onto several rows. *@
+<svg class="viz" viewBox="0 0 @W @H" role="img" aria-label="@($"{Bins.Count} bins")">
+    @for (var b = 0; b < Bins.Count; b++)
+    {
+        var (col, row) = (b % PerRow, b / PerRow);
+        var x = col * (BinW + Gap);
+        var top = row * (BinH + RowGap);
+        var used = 0;
+        <g>
+            <rect x="@F(x)" y="@F(top)" width="@F(BinW)" height="@BinH" rx="2" fill="@Palette.Ink0" stroke="@Palette.Line" stroke-width="0.8" />
+            @foreach (var id in Bins[b])
+            {
+                var size = _size[id];
+                var h = (double)size / Instance.Capacity * BinH;
+                var y = top + BinH - (double)(used + size) / Instance.Capacity * BinH;
+                used += size;
+                <rect x="@F(x + 1)" y="@F(y + 0.4)" width="@F(BinW - 2)" height="@F(Math.Max(0.4, h - 0.8))" fill="@Palette.SizeClass[Cls(size)]">
+                    <title>@($"Bin {b + 1}: item #{id + 1}, size {size}")</title>
+                </rect>
+            }
+        </g>
+    }
+</svg>
+<p class="muted small">@Bins.Count bins, @Num.Pct((double)Instance.TotalSize / (Bins.Count * Instance.Capacity)) full on average. Empty space at the top of a bin is wasted capacity.</p>
+
+@code {
+    [Parameter, EditorRequired] public BinPackingInstance Instance { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<List<int>> Bins { get; set; } = [];
+
+    private const int W = 1000;
+    private const int BinH = 90;
+    private const int RowGap = 14;
+    private const double Gap = 3;
+    private int PerRow => Math.Clamp(Bins.Count, 20, 50);
+    private double BinW => (W - Gap * (PerRow - 1)) / PerRow;
+    private int H => (int)Math.Ceiling(Bins.Count / (double)PerRow) * (BinH + RowGap) - RowGap;
+
+    private Dictionary<int, int> _size = [];
+
+    protected override void OnParametersSet() => _size = Instance.Items.ToDictionary(i => i.Id, i => i.Size);
+
+    private int Cls(int size) => size * 2 > Instance.Capacity ? 2 : size * 3 > Instance.Capacity ? 1 : 0;
+
+    private static string F(double v) => Palette.F(v, "0.##");
+}

@@ -1,12 +1,16 @@
+using System.Text.Json.Serialization;
+
 namespace Halgoworks.Core.BinPacking;
 
 public sealed record BinItem(int Id, int Size);
 
 public sealed record BinPackingInstance(string Name, int Capacity, IReadOnlyList<BinItem> Items, string Unit = "")
 {
+    [JsonIgnore]
     public int TotalSize => Items.Sum(i => i.Size);
 
     /// <summary>L1 bound: even with no wasted space you need the total size divided by capacity, rounded up.</summary>
+    [JsonIgnore]
     public int LowerBound => (TotalSize + Capacity - 1) / Capacity;
 }
 

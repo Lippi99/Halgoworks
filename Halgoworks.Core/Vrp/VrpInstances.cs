@@ -47,6 +47,35 @@ public static class VrpInstances
         return new VrpInstance(name, depotX, depotY, customers, capacity, deadlines);
     }
 
+    /// <summary>
+    /// Many customers for the Scale view, with no deadlines and trucks sized for about ten stops each, plus 20%
+    /// slack so plans have room to change.
+    /// </summary>
+    public static VrpInstance Large(int count, int seed, bool clustered)
+    {
+        var instance = Random(count, seed, clustered, deadlines: false);
+        var capacity = Math.Max(instance.Customers.Max(c => c.Demand), (int)Math.Ceiling(1.2 * instance.TotalDemand / Math.Max(1.0, count / 10.0)));
+        return instance with { Name = $"{count} customers #{seed}", Capacity = capacity };
+    }
+
+    /// <summary>
+    /// Customers inside a real city: the usual generator, shrunk to a box of the given size around
+    /// the city center. Distances stay straight-line until road distances are attached.
+    /// </summary>
+    public static VrpInstance InCity(string city, double centerLat, double centerLon, double boxKm, int count, int seed, bool clustered)
+    {
+        var plain = Random(count, seed, clustered, deadlines: false);
+        var scale = boxKm / 20;
+        return plain with
+        {
+            Name = $"{city} #{seed}",
+            DepotX = plain.DepotX * scale,
+            DepotY = plain.DepotY * scale,
+            Customers = plain.Customers.Select(c => c with { X = Math.Round(c.X * scale, 3), Y = Math.Round(c.Y * scale, 3) }).ToList(),
+            Geo = VrpInstance.CornerFor(centerLat, centerLon, boxKm, boxKm),
+        };
+    }
+
     private static double Gaussian(Random rng)
     {
         var u1 = 1 - rng.NextDouble();

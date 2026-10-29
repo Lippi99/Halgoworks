@@ -1,7 +1,10 @@
+using System.Text.Json.Serialization;
+
 namespace Halgoworks.Core.Knapsack;
 
 public sealed record KnapsackItem(int Id, string Name, string Icon, int Weight, int Value)
 {
+    [JsonIgnore]
     public double Density => (double)Value / Weight;
 }
 
@@ -49,6 +52,13 @@ public sealed record KnapsackStep : Step
 
     /// <summary>Optimal value, shown next to heuristic results.</summary>
     public int? Optimum { get; init; }
+
+    /// <summary>Branch and bound: the search tree so far, the node being examined and the best solution's node.</summary>
+    public IReadOnlyList<SearchNode> Tree { get; init; } = [];
+
+    public int? FocusNode { get; init; }
+
+    public int? BestNode { get; init; }
 }
 
 public sealed record KnapsackResult(int Value, int Weight, IReadOnlyList<int> Chosen);

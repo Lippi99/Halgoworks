@@ -1,0 +1,68 @@
+@using Halgoworks.Core.Matching
+
+<aside class="side edit-panel" aria-label="Edit the groups">
+    <div class="side-section">
+        <div class="step-meta"><span class="step-phase">Editing</span></div>
+        <h2 class="step-title">Make it your own</h2>
+        <p class="edit-hint" style="margin-top: 8px">
+            Click someone in one group, then someone in the other, to allow or forbid that pair.
+            Every change re-runs the algorithm; the view jumps to its result.
+        </p>
+    </div>
+    <div class="side-section">
+        <div class="edit-row">
+            <span>@Instance.LeftTitle</span>
+            <span class="num">@Instance.Left.Count</span>
+            <button type="button" class="btn small" disabled="@(Instance.Left.Count >= 9)" @onclick="() => Add(0)">Add</button>
+        </div>
+        <div class="edit-row">
+            <span>@Instance.RightTitle</span>
+            <span class="num">@Instance.Right.Count</span>
+            <button type="button" class="btn small" disabled="@(Instance.Right.Count >= 9)" @onclick="() => Add(1)">Add</button>
+        </div>
+        <div class="edit-row">
+            <span>Allowed pairs</span>
+            <span class="num">@Instance.Pairs.Count</span>
+        </div>
+    </div>
+    @if (Selected is { } node)
+    {
+        var names = node.Side == 0 ? Instance.Left : Instance.Right;
+        <div class="side-section">
+            <h3>@names[node.Index]</h3>
+            <p class="edit-hint">@Instance.Pairs.Count(p => (node.Side == 0 ? p.Left : p.Right) == node.Index) allowed pairs. Click someone on the other side to toggle a pair.</p>
+            <div class="play-actions">
+                <button type="button" class="btn small" disabled="@(names.Count <= 1)" @onclick="() => Remove(node)">Remove @names[node.Index]</button>
+            </div>
+        </div>
+    }
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public MatchingInstance Instance { get; set; } = default!;
+    [Parameter] public (int Side, int Index)? Selected { get; set; }
+    [Parameter] public EventCallback<MatchingInstance> Changed { get; set; }
+    [Parameter] public EventCallback ClearSelection { get; set; }
+
+    private Task Add(int side)
+    {
+        var names = side == 0 ? Instance.Left : Instance.Right;
+        var prefix = side == 0 ? "W" : "T";
+        var name = Enumerable.Range(names.Count + 1, 20).Select(i => $"{prefix}{i}").First(n => !names.Contains(n));
+        return Changed.InvokeAsync(side == 0 ? Instance with { Left = [.. Instance.Left, name] } : Instance with { Right = [.. Instance.Right, name] });
+    }
+
+    private async Task Remove((int Side, int Index) node)
+    {
+        int Map(int v) => v > node.Index ? v - 1 : v;
+        var pairs = Instance.Pairs
+            .Where(p => (node.Side == 0 ? p.Left : p.Right) != node.Index)
+            .Select(p => node.Side == 0 ? p with { Left = Map(p.Left) } : p with { Right = Map(p.Right) })
+            .ToList();
+        if (pairs.Count == 0) return;
+        await ClearSelection.InvokeAsync();
+        await Changed.InvokeAsync(node.Side == 0
+            ? Instance with { Left = Instance.Left.Where((_, i) => i != node.Index).ToList(), Pairs = pairs }
+            : Instance with { Right = Instance.Right.Where((_, i) => i != node.Index).ToList(), Pairs = pairs });
+    }
+}

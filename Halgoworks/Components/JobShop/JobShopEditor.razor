@@ -1,0 +1,52 @@
+@using Halgoworks.Core.JobShop
+
+<aside class="side edit-panel" aria-label="Edit the jobs">
+    <div class="side-section">
+        <div class="step-meta"><span class="step-phase">Editing</span></div>
+        <h2 class="step-title">Make it your own</h2>
+        <p class="edit-hint" style="margin-top: 8px">Change any operation's machine or duration. Every change re-runs the algorithm; the view jumps to its result.</p>
+    </div>
+    @foreach (var job in Instance.Jobs)
+    {
+        <div class="side-section">
+            <h3><span class="swatch" style="display: inline-block; background: @Palette.Slot(job.Id); margin-right: 8px"></span>@job.Name</h3>
+            @foreach (var op in job.Ops)
+            {
+                <div class="edit-row">
+                    <span>Step @(op.Index + 1)</span>
+                    <select class="input" style="height: 28px; width: 96px" value="@op.Machine" aria-label="@($"{job.Name} step {op.Index + 1} machine")"
+                            @onchange="e => SetMachine(op, e)">
+                        @for (var m = 0; m < Instance.Machines.Count; m++)
+                        {
+                            <option value="@m">@Instance.Machines[m]</option>
+                        }
+                    </select>
+                    <Stepper Value="op.Duration" Min="1" Max="99" Label="@($"{job.Name} step {op.Index + 1} duration")" ValueChanged="v => Update(op with { Duration = v })" />
+                </div>
+            }
+            @if (job.Due is { } due)
+            {
+                <div class="edit-row">
+                    <span>Due</span>
+                    <Stepper Value="due" Min="1" Max="400" Label="@($"{job.Name} due date")" ValueChanged="v => SetDue(job, v)" />
+                </div>
+            }
+        </div>
+    }
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public JobShopInstance Instance { get; set; } = default!;
+    [Parameter] public EventCallback<JobShopInstance> Changed { get; set; }
+
+    // An edited instance no longer has a known optimum.
+    private Task Emit(IEnumerable<Job> jobs) => Changed.InvokeAsync(Instance with { Jobs = jobs.ToList(), Optimum = null });
+
+    private Task Update(Operation op) =>
+        Emit(Instance.Jobs.Select(j => j.Id != op.Job ? j : j with { Ops = j.Ops.Select(o => o.Index == op.Index ? op : o).ToList() }));
+
+    private Task SetMachine(Operation op, ChangeEventArgs e) =>
+        int.TryParse(e.Value?.ToString(), out var m) && m >= 0 && m < Instance.Machines.Count ? Update(op with { Machine = m }) : Task.CompletedTask;
+
+    private Task SetDue(Job job, int due) => Emit(Instance.Jobs.Select(j => j.Id == job.Id ? j with { Due = due } : j));
+}

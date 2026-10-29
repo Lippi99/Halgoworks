@@ -1,3 +1,4 @@
+using Halgoworks.Core;
 using Halgoworks.Core.Knapsack;
 
 namespace Halgoworks.Tests;
@@ -67,5 +68,41 @@ public class KnapsackTests
 
         Assert.Equal((instance.Items.Count + 1) * (instance.Capacity + 1), filled.Count);
         Assert.Equal(filled.Count, filled.Distinct().Count());
+    }
+}
+
+public class KnapsackBranchAndBoundTests
+{
+    [Theory]
+    [MemberData(nameof(KnapsackTests.Seeds), MemberType = typeof(KnapsackTests))]
+    public void Branch_and_bound_proves_the_same_optimum_as_dynamic_programming(int seed)
+    {
+        var instance = KnapsackInstances.Random(4 + seed % 7, 8 + seed % 17, seed);
+        var steps = KnapsackBranchAndBound.Trace(instance);
+        var last = steps[^1];
+
+        Assert.Equal(KnapsackSolver.Solve(instance).Value, last.Total);
+        var taken = Enumerable.Range(0, instance.Items.Count).Where(i => last.Items[i] == ItemState.Taken).ToList();
+        Assert.Equal(last.Total, taken.Sum(i => instance.Items[i].Value));
+        Assert.True(taken.Sum(i => instance.Items[i].Weight) <= instance.Capacity);
+        Assert.True(last.Tree.Count < (1 << (instance.Items.Count + 1)));
+    }
+
+    [Fact]
+    public void Tree_nodes_are_consistent()
+    {
+        var steps = KnapsackBranchAndBound.Trace(KnapsackInstances.Camping());
+        var tree = steps[^1].Tree;
+        Assert.Equal(-1, tree[0].Parent);
+        foreach (var node in tree.Skip(1))
+        {
+            Assert.InRange(node.Parent, 0, node.Id - 1);
+            Assert.Equal(tree[node.Parent].Depth + 1, node.Depth);
+            Assert.Equal(NodeStatus.Branched, tree[node.Parent].Status);
+            // A bound is an upper bound on anything below it.
+            if (!double.IsNaN(node.Bound)) Assert.True(node.Bound <= tree[node.Parent].Bound + 1e-9);
+        }
+
+        Assert.Equal(NodeStatus.Solution, tree[steps[^1].BestNode!.Value].Status);
     }
 }

@@ -1,0 +1,208 @@
+@using Halgoworks.Core.JobShop
+
+<div class="stage">
+    <div class="stage-head">
+        <ul class="legend">
+            <li>Drag an operation left or right along its machine's row to change the order. Or click it and use the buttons.</li>
+            <li><span class="swatch ring"></span>Critical path: only reordering these can shorten the schedule</li>
+        </ul>
+        <span class="spacer"></span>
+        <button type="button" class="btn small" disabled="@(_selected is null)" @onclick="() => Shift(-1)">Move earlier</button>
+        <button type="button" class="btn small" disabled="@(_selected is null)" @onclick="() => Shift(1)">Move later</button>
+    </div>
+    <div class="stage-body">
+        <GanttChart Instance="Instance" Step="AsStep()" Horizon="@((int)Math.Ceiling(_eval.Makespan * 1.06) + 1)" Draggable="true" OnDrop="Drop" OnSelect="Select" Selected="_selected" />
+        <JobsLegend Instance="Instance" Step="AsStep()" />
+    </div>
+</div>
+
+<PlayPanel Title="Shorten the schedule" Message="@_message" MessageIsProblem="_problem" CanCheck="true" Checked="_checked" Verdict="@_verdict"
+           Comparison="_comparison" Refs="_refs" OnCheck="Check" OnShowBest="ShowBest" OnReset="Reset">
+    <Instructions>
+        You start from the schedule the weakest priority rule here (@_startRule) produces. Reorder operations on their machines to finish all jobs as early as you can.
+        Every operation starts as soon as both its job and its machine are free. No schedule can end before @Instance.LowerBound.
+    </Instructions>
+    <Status>
+        <dl class="play-figures">
+            <div><dt>Your makespan</dt><dd>@_eval.Makespan</dd></div>
+            <div><dt>Started at</dt><dd>@_start</dd></div>
+            <div><dt>Lower bound</dt><dd>@Instance.LowerBound</dd></div>
+            <div><dt>Best known</dt><dd>@(Instance.Optimum?.ToString() ?? "?")</dd></div>
+        </dl>
+    </Status>
+</PlayPanel>
+
+@code {
+    [Parameter, EditorRequired] public JobShopInstance Instance { get; set; } = default!;
+
+    /// <summary>Machine orders as "0.1,2.0|…" (job.index per operation, machines separated by |), for share links.</summary>
+    [Parameter] public string? State { get; set; }
+
+    [Parameter] public EventCallback<string> StateChanged { get; set; }
+
+    private JobShopInstance? _loaded;
+    private List<List<OpRef>> _order = [];
+    private JobShopSolver.Evaluation _eval = default!;
+    private int _start;
+    private OpRef? _selected;
+    private string? _message;
+    private bool _problem;
+    private bool _checked;
+    private string _verdict = "";
+    private IReadOnlyList<BarDatum> _comparison = [];
+    private IReadOnlyList<RefLine> _refs = [];
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_loaded, Instance)) return;
+        _loaded = Instance;
+        var plain = StartOrder();
+        _start = JobShopSolver.EvaluateOrder(Instance, plain)!.Makespan;
+        _order = Parse(State) ?? plain.Select(o => o.ToList()).ToList();
+        _eval = JobShopSolver.EvaluateOrder(Instance, _order) ?? JobShopSolver.EvaluateOrder(Instance, plain)!;
+        _selected = null;
+        _checked = false;
+        _message = null;
+    }
+
+    private string _startRule = "";
+
+    // The weakest dispatch rule's schedule: a sensible start that still leaves plenty to improve.
+    private IReadOnlyList<IReadOnlyList<OpRef>> StartOrder()
+    {
+        var worst = JobShopSolver.Rules.Where(r => r != DispatchRule.Edd || Instance.HasDueDates)
+            .MaxBy(r => JobShopSolver.Makespan(JobShopSolver.Solve(Instance, r)));
+        _startRule = $"{JobShopSolver.Short(worst)}, {JobShopSolver.Describe(worst)}";
+        return JobShopSolver.OrderOf(Instance, JobShopSolver.Solve(Instance, worst));
+    }
+
+    private List<List<OpRef>>? Parse(string? state)
+    {
+        if (string.IsNullOrEmpty(state)) return null;
+        try
+        {
+            var order = state.Split('|').Select(m => m.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(op => op.Split('.')).Select(p => new OpRef(int.Parse(p[0], CultureInfo.InvariantCulture), int.Parse(p[1], CultureInfo.InvariantCulture))).ToList()).ToList();
+            return JobShopSolver.EvaluateOrder(Instance, order) is null ? null : order;
+        }
+        catch (Exception e) when (e is FormatException or IndexOutOfRangeException or OverflowException)
+        {
+            return null;
+        }
+    }
+
+    private JobShopStep AsStep() => new()
+    {
+        Scheduled = _eval.Schedule,
+        Critical = _eval.Critical,
+        Makespan = _eval.Makespan,
+    };
+
+    private void Select(OpRef op)
+    {
+        _selected = _selected == op ? null : op;
+        _message = _selected is null ? null : $"{JobShopSolver.Label(op.Job, op.Index)} selected. Move it earlier or later on {Instance.Machines[Machine(op)]}.";
+        _problem = false;
+    }
+
+    private int Machine(OpRef op) => Instance.Jobs[op.Job].Ops[op.Index].Machine;
+
+    private Task Drop((OpRef Op, double Time) drop)
+    {
+        var m = Machine(drop.Op);
+        var others = _order[m].Where(o => o != drop.Op).ToList();
+        var schedule = _eval.Schedule.ToDictionary(o => new OpRef(o.Job, o.Index));
+        var index = others.Count(o => (schedule[o].Start + schedule[o].End) / 2.0 < drop.Time);
+        return MoveTo(drop.Op, index);
+    }
+
+    private Task Shift(int delta)
+    {
+        if (_selected is not { } op) return Task.CompletedTask;
+        var line = _order[Machine(op)];
+        return MoveTo(op, Math.Clamp(line.IndexOf(op) + delta, 0, line.Count - 1));
+    }
+
+    private Task MoveTo(OpRef op, int index)
+    {
+        var m = Machine(op);
+        var line = _order[m];
+        var old = line.IndexOf(op);
+        if (old == index)
+        {
+            _message = index == 0 ? $"{JobShopSolver.Label(op.Job, op.Index)} is already first on {Instance.Machines[m]}."
+                : index == line.Count - 1 ? $"{JobShopSolver.Label(op.Job, op.Index)} is already last on {Instance.Machines[m]}."
+                : "The order didn't change. Drop it past a neighbor to swap them.";
+            _problem = false;
+            _selected = op;
+            return Task.CompletedTask;
+        }
+        var next = _order.Select(l => l.ToList()).ToList();
+        next[m].Remove(op);
+        next[m].Insert(index, op);
+        var eval = JobShopSolver.EvaluateOrder(Instance, next);
+        if (eval is null)
+        {
+            _message = $"That order is impossible: with {JobShopSolver.Label(op.Job, op.Index)} there, some operations would each have to wait for the other to finish first.";
+            _problem = true;
+            return Task.CompletedTask;
+        }
+
+        var change = eval.Makespan - _eval.Makespan;
+        _order = next;
+        _eval = eval;
+        _checked = false;
+        _selected = op;
+        _message = change < 0 ? $"Makespan {eval.Makespan + -change} → {eval.Makespan}. Nice." : change > 0 ? $"Makespan {eval.Makespan - change} → {eval.Makespan}: that made it longer." : $"Same makespan, {eval.Makespan}. Try moving something on the critical path.";
+        _problem = false;
+        return Save();
+    }
+
+    private Task Save() => StateChanged.InvokeAsync(string.Join("|", _order.Select(l => string.Join(",", l.Select(o => $"{o.Job}.{o.Index}")))));
+
+    private void Check()
+    {
+        var rules = JobShopSolver.Rules.Where(r => r != DispatchRule.Edd || Instance.HasDueDates)
+            .Select(r => (Name: JobShopSolver.Short(r), Makespan: JobShopSolver.Makespan(JobShopSolver.Solve(Instance, r)))).ToList();
+        var tabu = JobShopSolver.TraceTabu(Instance)[^1].Makespan;
+        var you = _eval.Makespan;
+        var bestAlgo = Math.Min(tabu, rules.Min(r => r.Makespan));
+        var target = Instance.Optimum ?? Instance.LowerBound;
+        _verdict = you <= target && (Instance.Optimum is not null || you == Instance.LowerBound)
+            ? $"**Makespan {you}: optimal!** No schedule can finish earlier."
+            : you < bestAlgo
+                ? $"**Makespan {you}: you beat every algorithm here**, including tabu search ({tabu})."
+                : you == bestAlgo
+                    ? $"**Makespan {you}**, as good as the best algorithm."
+                    : $"**Makespan {you}.** The best algorithm reaches {bestAlgo}. Look at the highlighted critical path and reorder operations on it.";
+        _comparison = [new BarDatum("You", you, $"{you}", true), .. rules.Select(r => new BarDatum(r.Name, r.Makespan, $"{r.Makespan}", false)), new BarDatum("Tabu search", tabu, $"{tabu}", false)];
+        _refs = Instance.Optimum is { } opt && opt != Instance.LowerBound
+            ? [new RefLine("Lower bound", Instance.LowerBound), new RefLine("Optimum", opt)]
+            : [new RefLine(Instance.Optimum is not null ? "Lower bound = optimum" : "Lower bound", Instance.LowerBound)];
+        _checked = true;
+        _message = null;
+    }
+
+    private Task ShowBest()
+    {
+        var best = JobShopSolver.TraceTabu(Instance)[^1];
+        _order = JobShopSolver.OrderOf(Instance, best.Scheduled).Select(o => o.ToList()).ToList();
+        _eval = JobShopSolver.EvaluateOrder(Instance, _order)!;
+        _selected = null;
+        Check();
+        _message = $"Tabu search's best schedule: makespan {_eval.Makespan}{(Instance.Optimum == _eval.Makespan ? ", the proven optimum" : "")}.";
+        _problem = false;
+        return Save();
+    }
+
+    private Task Reset()
+    {
+        _order = StartOrder().Select(o => o.ToList()).ToList();
+        _eval = JobShopSolver.EvaluateOrder(Instance, _order)!;
+        _selected = null;
+        _checked = false;
+        _message = "Back to the starting schedule.";
+        _problem = false;
+        return Save();
+    }
+}

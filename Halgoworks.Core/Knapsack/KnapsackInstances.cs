@@ -30,6 +30,22 @@ public static class KnapsackInstances
         ("First aid", "🩹"), ("Compass", "🧭"), ("Map", "🗺️"), ("Drone", "🛸"),
     ];
 
+    /// <summary>
+    /// Many generic items for the Scale view: weights 5–60 kg, values loosely tied to weight (the
+    /// hard case for greedy rules), and room for about 40% of the total weight.
+    /// </summary>
+    public static KnapsackInstance Large(int count, int seed)
+    {
+        var rng = new Random(seed);
+        var items = Enumerable.Range(0, count).Select(i =>
+        {
+            var weight = rng.Next(5, 61);
+            var value = Math.Max(1, weight + rng.Next(-4, 21));
+            return new KnapsackItem(i, $"Item {i + 1}", "📦", weight, value);
+        }).ToList();
+        return new KnapsackInstance($"{count} items #{seed}", (int)(items.Sum(i => i.Weight) * 0.4), items);
+    }
+
     public static KnapsackInstance Random(int count, int capacity, int seed)
     {
         var rng = new Random(seed);

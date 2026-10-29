@@ -1,0 +1,96 @@
+@using Halgoworks.Core.MaxFlow
+
+<ScaleView Jobs="_jobs" Version="_version" Summary="@($"{_network.Nodes.Count} nodes, {_network.Edges.Count} pipes")" ValueLabel="Maximum flow"
+           Format="@(v => Palette.F(v))">
+    <Legend>
+        <li><span class="swatch line" style="background: @Palette.Series[0]"></span>Flow (brighter is fuller)</li>
+        <li><span class="swatch line" style="background: @Palette.Signal"></span>Minimum cut: full pipes from the source side to the sink side</li>
+        <li><span class="swatch" style="background: @Palette.Series[0]; border-radius: 50%"></span>Source side of the cut</li>
+    </Legend>
+    <Controls>
+        <label class="field">
+            <span>Layers <output>@_layers</output></span>
+            <input type="range" min="4" max="16" value="@_layers" style="--pct: @Pct(_layers, 4, 16)" @onchange="e => Set(e, v => _layers = v)" />
+        </label>
+        <label class="field">
+            <span>Nodes per layer <output>@_width</output></span>
+            <input type="range" min="3" max="10" value="@_width" style="--pct: @Pct(_width, 3, 10)" @onchange="e => Set(e, v => _width = v)" />
+        </label>
+        <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New network</button>
+        <p class="muted small">
+            Every algorithm finds the same maximum flow; what differs is the work. Path-based methods report how many augmenting
+            paths they needed. All four run on the same residual-graph code, so the times compare the strategies, not the implementations.
+            Push–relabel here leaves out the gap and global-relabel heuristics so its steps stay easy to follow in Watch mode; production
+            versions use them and are usually the fastest of all.
+        </p>
+    </Controls>
+    <Visual>
+        <FlowScaleView Network="_network" Result="(MaxFlowResult)context.Result.Solution!" />
+    </Visual>
+</ScaleView>
+
+@code {
+    /// <summary>"layers.width.seed", for share links.</summary>
+    [Parameter] public string? State { get; set; }
+    [Parameter] public EventCallback<string> StateChanged { get; set; }
+
+    private int _layers = 10;
+    private int _width = 6;
+    private int _seed = 1;
+    private int _version;
+    private bool _loaded;
+    private FlowNetwork _network = default!;
+    private IReadOnlyList<ScaleJob> _jobs = [];
+
+    protected override void OnParametersSet()
+    {
+        if (_loaded) return;
+        _loaded = true;
+        if (State?.Split('.') is [var l, var w, var seed] && int.TryParse(l, out var layers) && int.TryParse(w, out var width) && int.TryParse(seed, out var s))
+        {
+            _layers = Math.Clamp(layers, 4, 16);
+            _width = Math.Clamp(width, 3, 10);
+            _seed = Math.Clamp(s, 1, 1_000_000);
+        }
+
+        Build();
+    }
+
+    private void Build()
+    {
+        var network = _network = FlowNetworks.Large(_layers, _width, _seed);
+        ScaleJob Job(string name, FlowAlgorithm algorithm, bool paths) => new(name, () =>
+        {
+            var r = MaxFlowSolver.Solve(network, algorithm);
+            return new ScaleResult(r.Total, r, paths ? $"{r.Augmentations} augmenting paths" : null);
+        });
+
+        _jobs =
+        [
+            Job("Edmonds–Karp", FlowAlgorithm.EdmondsKarp, true),
+            Job("Ford–Fulkerson", FlowAlgorithm.FordFulkerson, true),
+            Job("Dinic", FlowAlgorithm.Dinic, true),
+            Job("Push–relabel", FlowAlgorithm.PushRelabel, false),
+        ];
+        _version++;
+    }
+
+    private static string Pct(int value, int min, int max) => Palette.F(100.0 * (value - min) / (max - min), "0.#") + "%";
+
+    private Task Save() => StateChanged.InvokeAsync($"{_layers}.{_width}.{_seed}");
+
+    private Task Set(ChangeEventArgs e, Action<int> set)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var value)) return Task.CompletedTask;
+        set(value);
+        Build();
+        return Save();
+    }
+
+    private Task Reroll()
+    {
+        _seed = Random.Shared.Next(1, 100_000);
+        Build();
+        return Save();
+    }
+}

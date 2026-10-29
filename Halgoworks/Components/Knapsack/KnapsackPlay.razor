@@ -1,0 +1,184 @@
+@using Halgoworks.Core.Knapsack
+
+<div class="stage">
+    <div class="stage-head">
+        <ul class="legend">
+            <li>Drag items into the knapsack, or click them. Click a packed item to take it out.</li>
+        </ul>
+    </div>
+    <div class="stage-body">
+        <div class="knapsack-bag drop-zone @(_over == "bag" ? "over" : null)"
+             @ondragover:preventDefault @ondragenter="@(() => _over = "bag")" @ondragleave="() => _over = null" @ondrop="DropInBag">
+            <div class="gauge">
+                <div class="gauge-head">
+                    <span>Knapsack: <strong class="num">@Load</strong> of @Instance.Capacity kg</span>
+                    <span>Value <strong class="num">@Value</strong></span>
+                </div>
+                <div class="gauge-track">
+                    @foreach (var i in _packed.OrderBy(i => i))
+                    {
+                        var item = Instance.Items[i];
+                        var share = (double)item.Weight / Instance.Capacity;
+                        <button type="button" class="gauge-seg" style="flex: 0 0 calc(@Palette.F(share * 100, "0.##")% - 2px); border: 0; cursor: pointer"
+                                title="@($"Take out the {item.Name.ToLowerInvariant()}")" @onclick="() => Toggle(i)">@(share >= 0.07 ? item.Icon : "")</button>
+                    }
+                </div>
+            </div>
+            @if (_packed.Count == 0)
+            {
+                <p class="edit-hint" style="margin-top: 8px">The knapsack is empty. Drop items here.</p>
+            }
+        </div>
+
+        <ul class="items drop-zone @(_over == "shelf" ? "over" : null)" aria-label="Items" style="padding: 10px; border-style: solid; border-color: transparent"
+            @ondragover:preventDefault @ondragenter="@(() => _over = "shelf")" @ondragleave="() => _over = null" @ondrop="DropOnShelf">
+            @foreach (var item in Instance.Items)
+            {
+                var packed = _packed.Contains(item.Id);
+                <li class="item draggable @(packed ? "taken" : null)" draggable="true" tabindex="0" role="button" aria-pressed="@(packed ? "true" : "false")"
+                    @ondragstart="() => _dragging = item.Id" @onclick="() => Toggle(item.Id)" @onkeydown="e => Key(e, item.Id)">
+                    <span class="item-icon" aria-hidden="true">@item.Icon</span>
+                    <span class="item-name">@item.Name</span>
+                    <span class="item-meta">@item.Weight kg, value @item.Value</span>
+                    @if (packed)
+                    {
+                        <span class="item-badge">packed</span>
+                    }
+                </li>
+            }
+        </ul>
+    </div>
+</div>
+
+<PlayPanel Title="Pack it better than greedy" Message="@_message" MessageIsProblem="_problem" CanCheck="true" Checked="_checked" Verdict="@_verdict"
+           Comparison="_comparison" OnCheck="Check" OnShowBest="ShowBest" OnReset="Reset">
+    <Instructions>
+        Choose items so the total value is as high as possible without going over @Instance.Capacity kg. Greedy packs by value per kg;
+        dynamic programming always finds the best. Can you match it?
+    </Instructions>
+    <Status>
+        <dl class="play-figures">
+            <div><dt>Your value</dt><dd>@Value</dd></div>
+            <div><dt>Weight used</dt><dd>@Load <small class="muted">/ @Instance.Capacity kg</small></dd></div>
+        </dl>
+    </Status>
+</PlayPanel>
+
+@code {
+    [Parameter, EditorRequired] public KnapsackInstance Instance { get; set; } = default!;
+
+    /// <summary>Packed item ids as "0,3,5", for share links.</summary>
+    [Parameter] public string? State { get; set; }
+
+    [Parameter] public EventCallback<string> StateChanged { get; set; }
+
+    private readonly HashSet<int> _packed = [];
+    private KnapsackInstance? _loaded;
+    private int? _dragging;
+    private string? _over;
+    private string? _message;
+    private bool _problem;
+    private bool _checked;
+    private string _verdict = "";
+    private IReadOnlyList<BarDatum> _comparison = [];
+
+    private int Load => _packed.Sum(i => Instance.Items[i].Weight);
+    private int Value => _packed.Sum(i => Instance.Items[i].Value);
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_loaded, Instance)) return;
+        _loaded = Instance;
+        _packed.Clear();
+        _checked = false;
+        _message = null;
+        foreach (var part in (State ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+            if (int.TryParse(part, out var id) && id >= 0 && id < Instance.Items.Count && Load + Instance.Items[id].Weight <= Instance.Capacity)
+                _packed.Add(id);
+    }
+
+    private Task Toggle(int id)
+    {
+        var item = Instance.Items[id];
+        if (_packed.Remove(id))
+        {
+            Say($"Took out the {item.Name.ToLowerInvariant()}.", false);
+        }
+        else if (Load + item.Weight > Instance.Capacity)
+        {
+            Say($"The {item.Name.ToLowerInvariant()} weighs {item.Weight} kg, but only {Instance.Capacity - Load} kg of room is left.", true);
+            return Task.CompletedTask;
+        }
+        else
+        {
+            _packed.Add(id);
+            Say($"Packed the {item.Name.ToLowerInvariant()}.", false);
+        }
+
+        _checked = false;
+        return StateChanged.InvokeAsync(string.Join(",", _packed.OrderBy(i => i)));
+    }
+
+    private async Task DropInBag()
+    {
+        _over = null;
+        if (_dragging is { } id && !_packed.Contains(id)) await Toggle(id);
+        _dragging = null;
+    }
+
+    private async Task DropOnShelf()
+    {
+        _over = null;
+        if (_dragging is { } id && _packed.Contains(id)) await Toggle(id);
+        _dragging = null;
+    }
+
+    private async Task Key(KeyboardEventArgs e, int id)
+    {
+        if (e.Key is "Enter" or " ") await Toggle(id);
+    }
+
+    private void Say(string message, bool problem)
+    {
+        _message = message;
+        _problem = problem;
+    }
+
+    private void Check()
+    {
+        var best = KnapsackSolver.Solve(Instance).Value;
+        var greedy = KnapsackSolver.SolveGreedy(Instance, GreedyOrder.Density).Value;
+        _verdict = Value == best
+            ? $"**You found the best possible value, {best}.** Dynamic programming can only tie you{(greedy < best ? $", and you beat greedy by {best - greedy}" : "")}."
+            : Value > greedy
+                ? $"You packed **{Value}**: better than greedy ({greedy}), but {best - Value} short of the best possible {best}."
+                : Value == greedy
+                    ? $"You packed **{Value}**, the same as greedy. The best possible is {best}."
+                    : $"You packed **{Value}**. Greedy gets {greedy} and the best possible is {best}.";
+        _comparison =
+        [
+            new BarDatum("You", Value, $"{Value}", true),
+            new BarDatum("Greedy by value per kg", greedy, $"{greedy}", false),
+            new BarDatum("Dynamic programming", best, $"{best}", false, "Optimal"),
+        ];
+        _checked = true;
+        _message = null;
+    }
+
+    private Task ShowBest()
+    {
+        _packed.Clear();
+        foreach (var i in KnapsackSolver.Solve(Instance).Chosen) _packed.Add(i);
+        Check();
+        Say("This is an optimal packing, found by dynamic programming.", false);
+        return StateChanged.InvokeAsync(string.Join(",", _packed.OrderBy(i => i)));
+    }
+
+    private Task Reset()
+    {
+        _packed.Clear();
+        _checked = false;
+        Say("Emptied the knapsack.", false);
+        return StateChanged.InvokeAsync("");
+    }
+}

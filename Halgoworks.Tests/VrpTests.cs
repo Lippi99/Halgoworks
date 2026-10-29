@@ -63,3 +63,45 @@ public class VrpTests
         for (var k = 1; k < distances.Count; k++) Assert.True(distances[k] <= distances[k - 1] + 1e-9);
     }
 }
+
+public class VrpMetaheuristicTests
+{
+    public static TheoryData<int, bool, bool> Cases() => VrpTests.Cases();
+
+    private static void AssertValidPlan(VrpInstance instance, IReadOnlyList<int[]> routes)
+    {
+        Assert.Equal(instance.Customers.Select(c => c.Id).OrderBy(c => c), routes.SelectMany(r => r).OrderBy(c => c));
+        Assert.All(routes, r => Assert.True(VrpSolver.Feasible(instance, r)));
+    }
+
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void Annealing_and_genetic_produce_feasible_plans_no_worse_than_their_start(int seed, bool clustered, bool deadlines)
+    {
+        var instance = VrpInstances.Random(8 + seed % 15, seed, clustered, deadlines);
+
+        var sa = VrpMetaheuristics.TraceAnnealing(instance, 1500);
+        AssertValidPlan(instance, sa[^1].Routes);
+        Assert.True(sa[^1].Distance <= sa[0].Distance + 1e-9);
+        Assert.Equal(sa[^1].Routes, VrpMetaheuristics.SolveAnnealing(instance, 1500));
+        Assert.All(sa.Zip(sa.Skip(1)), p => Assert.True(p.Second.BestHistory[^1] <= p.First.BestHistory[^1] + 1e-9));
+
+        var ga = VrpMetaheuristics.TraceGenetic(instance, 25, 20);
+        AssertValidPlan(instance, ga[^1].Routes);
+        Assert.True(ga[^1].Distance <= ga[0].Distance + 1e-9);
+        Assert.Equal(VrpSolver.TotalDistance(instance, ga[^1].Routes), VrpSolver.TotalDistance(instance, VrpMetaheuristics.SolveGenetic(instance, 25, 20)), 6);
+    }
+
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void Split_cuts_any_order_into_feasible_routes_no_longer_than_one_truck_per_customer(int seed, bool clustered, bool deadlines)
+    {
+        var instance = VrpInstances.Random(8 + seed % 15, seed, clustered, deadlines);
+        var order = instance.Customers.Select(c => c.Id).OrderBy(id => (id * 7919) % 101).ToArray();
+        var routes = VrpMetaheuristics.Split(instance, order);
+        AssertValidPlan(instance, routes);
+        Assert.Equal(order, routes.SelectMany(r => r));
+        var star = instance.Customers.Sum(c => 2 * instance.D(0, c.Id));
+        Assert.True(VrpSolver.TotalDistance(instance, routes) <= star + 1e-9);
+    }
+}

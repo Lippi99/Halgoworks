@@ -1,0 +1,74 @@
+@using Halgoworks.Core.Vrp
+
+<aside class="side edit-panel" aria-label="Edit the map">
+    <div class="side-section">
+        <div class="step-meta"><span class="step-phase">Editing</span></div>
+        <h2 class="step-title">Make it your own</h2>
+        <p class="edit-hint" style="margin-top: 8px">
+            Click empty map to add a customer, drag a customer to move it, and click one to change it below.
+            Every change re-runs the algorithm; the comparison chart updates when you leave edit mode.
+        </p>
+    </div>
+    <div class="side-section">
+        <div class="edit-row">
+            <span>Truck capacity</span>
+            <Stepper Value="Instance.Capacity" Min="@Instance.Customers.Max(c => c.Demand)" Max="200" Label="truck capacity"
+                     ValueChanged="v => Changed.InvokeAsync(Instance with { Capacity = v })" />
+        </div>
+        <div class="edit-row">
+            <span>Customers</span>
+            <span class="num">@Instance.Customers.Count of 30</span>
+        </div>
+    </div>
+    <div class="side-section">
+        @if (Selected is { } id && id >= 1 && id <= Instance.Customers.Count)
+        {
+            var c = Instance[id];
+            <h3>Customer C@(id)</h3>
+            <div class="edit-row">
+                <span>Demand</span>
+                <Stepper Value="c.Demand" Min="1" Max="Instance.Capacity" Label="demand" ValueChanged="v => Update(c with { Demand = v })" />
+            </div>
+            @if (Instance.UseDeadlines)
+            {
+                <div class="edit-row">
+                    <span>Deliver by</span>
+                    <Stepper Value="c.Deadline" Min="@EarliestDeadline(c)" Max="600" Step="15" Label="deadline" Format="@(v => VrpInstance.Clock(v))"
+                             ValueChanged="v => Update(c with { Deadline = v })" />
+                </div>
+            }
+            <div class="play-actions">
+                <button type="button" class="btn small" disabled="@(Instance.Customers.Count <= 1)" @onclick="() => Delete(id)">Delete C@(id)</button>
+            </div>
+        }
+        else
+        {
+            <p class="edit-hint">Click a customer on the map to change its demand@(Instance.UseDeadlines ? " or deadline" : "") or delete it.</p>
+        }
+    </div>
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public VrpInstance Instance { get; set; } = default!;
+    [Parameter] public int? Selected { get; set; }
+    [Parameter] public EventCallback<VrpInstance> Changed { get; set; }
+    [Parameter] public EventCallback<int?> SelectedChanged { get; set; }
+
+    /// <summary>A truck driving straight from the depot must be able to make it, rounded up to 15 minutes.</summary>
+    public static int EarliestDeadline(VrpInstance instance, double x, double y)
+    {
+        var minutes = Math.Sqrt((x - instance.DepotX) * (x - instance.DepotX) + (y - instance.DepotY) * (y - instance.DepotY)) / instance.Speed;
+        return (int)Math.Ceiling(minutes / 15) * 15;
+    }
+
+    private int EarliestDeadline(Customer c) => EarliestDeadline(Instance, c.X, c.Y);
+
+    private Task Update(Customer customer) =>
+        Changed.InvokeAsync(Instance with { Customers = Instance.Customers.Select(c => c.Id == customer.Id ? customer : c).ToList() });
+
+    private async Task Delete(int id)
+    {
+        await SelectedChanged.InvokeAsync(null);
+        await Changed.InvokeAsync(Instance with { Customers = Instance.Customers.Where(c => c.Id != id).Select((c, k) => c with { Id = k + 1 }).ToList() });
+    }
+}

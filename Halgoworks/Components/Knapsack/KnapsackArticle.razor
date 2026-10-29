@@ -78,6 +78,27 @@
             and the rest is the best packing of the first <i>i</i> − 1 items for <i>w</i>, or it's in, and the rest is the best packing of the first <i>i</i> − 1 items
             for <i>w</i> − <i>w<sub>i</sub></i>. Compare the two and keep the larger. Step through the lab and watch each cell make exactly that decision.
         </p>
+        <h3>Branch and bound (exact)</h3>
+        <p>
+            Brute force walks a binary tree: each level decides one item, take it or skip it, and the 2<sup><i>n</i></sup> leaves are all possible packings.
+            Branch and bound walks the same tree but carries two numbers. The <strong>best</strong> is the value of the best packing found so far.
+            A node's <strong>bound</strong> is an optimistic estimate of anything below it: fill the remaining room greedily by density and allow one item
+            to be taken fractionally. Because fractions make the problem easier, the bound can never be beaten. When a node's bound is no better
+            than the best, its whole subtree is cut unexplored.
+        </p>
+        <p>
+            Two choices make the cuts happen early. Items are decided densest first, and "take" is tried before "skip", so a strong packing is
+            found quickly and raises the bar for everything after it. Watch the node count in the lab: on most examples the search visits a small
+            fraction of the full tree, yet the answer is proven optimal, just like dynamic programming. Unlike the DP, its running time doesn't depend
+            on the size of <i>W</i>, which is why solvers prefer it for huge capacities.
+        </p>
+        <h3>As an integer program</h3>
+        <p>
+            The "Integer program" option solves the formal model above the way general-purpose solvers do. It drops the 0-or-1 rule, solves the resulting
+            <strong>linear program</strong> with the simplex method, and branches on a variable that came out fractional: one child forces it to 1, the other to 0.
+            For knapsack the relaxation is exactly the fractional greedy bound, but the search branches on the item that is split, not simply the next one in line,
+            so it usually needs far fewer nodes than plain branch and bound. On the camping trip it proves the optimum after five linear programs.
+        </p>
         <h3>Greedy by value density</h3>
         <p>
             Rank items by value ÷ weight and pack each one that still fits. It's intuitive and instant, but it can be badly wrong.
@@ -92,6 +113,7 @@
             <tbody>
                 <tr><td>Brute force</td><td><i>O</i>(2<sup><i>n</i></sup>·<i>n</i>)</td><td>Optimal, but only for tiny <i>n</i></td></tr>
                 <tr><td>Dynamic programming</td><td><i>O</i>(<i>n</i>·<i>W</i>)</td><td>Optimal; slow when <i>W</i> is huge</td></tr>
+                <tr><td>Branch and bound</td><td><i>O</i>(2<sup><i>n</i></sup>) worst case, usually far less</td><td>Optimal</td></tr>
                 <tr><td>Greedy by density</td><td><i>O</i>(<i>n</i> log <i>n</i>)</td><td>None; can be arbitrarily bad</td></tr>
                 <tr><td>Greedy or best single item</td><td><i>O</i>(<i>n</i> log <i>n</i>)</td><td>At least ½ of the optimum</td></tr>
                 <tr><td>FPTAS (value scaling)</td><td><i>O</i>(<i>n</i><sup>3</sup>/ε)</td><td>At least (1 − ε) of the optimum</td></tr>
@@ -102,7 +124,6 @@
     <section id="beyond">
         <h2>Beyond this lab</h2>
         <ul>
-            <li><strong>Branch and bound.</strong> Explore the include/exclude tree, but prune any branch whose optimistic bound (the fractional greedy value of what's left) can't beat the best packing found so far. With good bounds it handles thousands of items.</li>
             <li><strong>Approximation schemes.</strong> Round values down to a coarser scale and run a DP over values instead of weights. You choose the accuracy ε and pay for it in time: a fully polynomial-time approximation scheme (FPTAS).</li>
             <li><strong>Meet in the middle.</strong> Split the items in half, list all subsets of each half, sort one list, and match. That's about 2<sup><i>n</i>/2</sup> work instead of 2<sup><i>n</i></sup>, useful when weights are huge but <i>n</i> is around 40.</li>
             <li><strong>Variants.</strong> Unbounded knapsack (unlimited copies of each item), bounded knapsack (up to <i>k</i> copies), multidimensional knapsack (weight <em>and</em> volume limits), multiple knapsacks, and quadratic knapsack, where pairs of items add value together.</li>

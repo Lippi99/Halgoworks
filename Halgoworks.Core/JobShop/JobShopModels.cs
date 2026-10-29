@@ -1,21 +1,27 @@
+using System.Text.Json.Serialization;
+
 namespace Halgoworks.Core.JobShop;
 
 public sealed record Operation(int Job, int Index, int Machine, int Duration);
 
 public sealed record Job(int Id, string Name, IReadOnlyList<Operation> Ops, int? Due)
 {
+    [JsonIgnore]
     public int TotalWork => Ops.Sum(o => o.Duration);
 }
 
 public sealed record JobShopInstance(string Name, IReadOnlyList<Job> Jobs, IReadOnlyList<string> Machines, int? Optimum)
 {
+    [JsonIgnore]
     public bool HasDueDates => Jobs.All(j => j.Due is not null);
 
     /// <summary>No schedule can beat the longest job or the busiest machine.</summary>
+    [JsonIgnore]
     public int LowerBound => Math.Max(
         Jobs.Max(j => j.TotalWork),
         Enumerable.Range(0, Machines.Count).Max(m => Jobs.SelectMany(j => j.Ops).Where(o => o.Machine == m).Sum(o => o.Duration)));
 
+    [JsonIgnore]
     public int OperationCount => Jobs.Sum(j => j.Ops.Count);
 }
 

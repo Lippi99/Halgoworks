@@ -723,6 +723,184 @@ builders.vrp = (stage) => {
     return { update, tick };
 };
 
+// Push–relabel: each node stands on a pillar as tall as its height, pipes run between pillar tops so
+// flow visibly runs downhill, and amber spheres hold the excess a node still has to push.
+builders.flow = (stage) => {
+    const { scene } = stage;
+    addLights(scene, 22);
+    addFloor(scene, 300, 300, -0.02);
+    const grid = new THREE.GridHelper(40, 40, 0x31476d, 0x22365a);
+    grid.position.y = 0.005;
+    scene.add(grid);
+
+    const unit = 1.05;
+    const spanX = 26;
+    const spanZ = 15;
+    const up = new THREE.Vector3(0, 1, 0);
+    const pipeGeometry = new THREE.CylinderGeometry(1, 1, 1, 14, 1, true);
+    const waterGeometry = new THREE.CylinderGeometry(1, 1, 1, 14);
+    const coneGeometry = new THREE.ConeGeometry(1, 1, 14);
+    const root = new THREE.Group();
+    scene.add(root);
+    let nodes = new Map();
+    let edges = [];
+    let pushes = [];
+    let key = '';
+    let framedHeight = -1;
+    const tmp = new THREE.Vector3();
+
+    function place(node) {
+        return new THREE.Vector3((node.x - 0.5) * spanX, 0, (node.y - 0.5) * spanZ);
+    }
+
+    function topOf(id) {
+        const n = nodes.get(id);
+        return n.base.clone().setY(n.height * unit + 0.55);
+    }
+
+    // Points a cylinder of unit height from a to b.
+    function segment(mesh, a, b, radius) {
+        tmp.subVectors(b, a);
+        const length = tmp.length();
+        mesh.position.copy(a).addScaledVector(tmp, 0.5);
+        mesh.quaternion.setFromUnitVectors(up, tmp.normalize());
+        mesh.scale.set(radius, Math.max(0.001, length), radius);
+    }
+
+    function label(n) {
+        if (n.labelSprite) removeAndDispose(n.labelSprite);
+        const text = `${n.label}  h${n.targetHeight}`;
+        n.labelSprite = makeLabel(text, { height: 0.85, color: n.terminal ? '#eaf0f8' : '#aab7cb' });
+        n.labelText = text;
+        root.add(n.labelSprite);
+    }
+
+    function build(state) {
+        removeAndDispose(root);
+        root.clear();
+        scene.add(root);
+        nodes = new Map();
+        edges = [];
+        for (const s of state.nodes) {
+            const base = place(s);
+            const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 1, 20), new THREE.MeshStandardMaterial({ color: s.terminal ? 0x3a5a8a : 0x24385a, roughness: 0.6 }));
+            pillar.castShadow = true;
+            pillar.receiveShadow = true;
+            const cap = new THREE.Mesh(new THREE.SphereGeometry(0.55, 24, 16), new THREE.MeshStandardMaterial({ color: s.terminal ? 0xd8e1ee : 0x9fb0c8, roughness: 0.4, emissive: C.signal, emissiveIntensity: 0 }));
+            cap.castShadow = true;
+            const ball = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshStandardMaterial({ color: C.signal, roughness: 0.3, emissive: C.signal, emissiveIntensity: 0.35 }));
+            ball.visible = false;
+            root.add(pillar, cap, ball);
+            const n = { ...s, base, pillar, cap, ball, height: s.height, targetHeight: s.height, excessNow: 0, excessTarget: s.excess, glow: 0 };
+            nodes.set(s.id, n);
+            label(n);
+        }
+
+        const pairs = new Set(state.edges.map(e => `${e.from}-${e.to}`));
+        for (const e of state.edges) {
+            const pipe = new THREE.Mesh(pipeGeometry, new THREE.MeshStandardMaterial({ color: 0x9fb7d9, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
+            const water = new THREE.Mesh(waterGeometry, new THREE.MeshStandardMaterial({ color: C.series[0], roughness: 0.35, emissive: C.series[0], emissiveIntensity: 0.2 }));
+            const arrow = new THREE.Mesh(coneGeometry, new THREE.MeshStandardMaterial({ color: C.line, roughness: 0.5 }));
+            root.add(pipe, water, arrow);
+            // Antiparallel pipes sit side by side instead of inside each other.
+            const offset = pairs.has(`${e.to}-${e.from}`) ? 0.38 : 0;
+            edges.push({ ...e, pipe, water, arrow, offset, ratio: 0, targetRatio: e.flow / e.capacity, radius: 0.12 + 0.2 * Math.sqrt(e.capacity / Math.max(...state.edges.map(x => x.capacity))) });
+        }
+    }
+
+    function update(state) {
+        if (!state) return;
+        const newKey = state.nodes.map(n => `${n.id}:${n.x}:${n.y}`).join('|') + '#' + state.edges.map(e => `${e.from}-${e.to}-${e.capacity}`).join('|');
+        if (newKey !== key) {
+            key = newKey;
+            build(state);
+        }
+
+        for (const s of state.nodes) {
+            const n = nodes.get(s.id);
+            n.targetHeight = s.height;
+            n.excessTarget = s.excess;
+            n.glow = s.current ? 0.9 : 0;
+            if (n.labelText !== `${n.label}  h${s.height}`) label(n);
+        }
+
+        state.edges.forEach((e, i) => { edges[i].targetRatio = e.flow / e.capacity; });
+
+        for (const p of pushes) removeAndDispose(p.line);
+        pushes = state.pushed.map(([from, to]) => {
+            const line = new THREE.Mesh(waterGeometry, new THREE.MeshBasicMaterial({ color: C.signal }));
+            root.add(line);
+            return { from, to, line };
+        });
+
+        if (state.maxHeight !== framedHeight) {
+            framedHeight = state.maxHeight;
+            const tall = state.maxHeight * unit;
+            frame(stage, new THREE.Vector3(0, tall * 0.3, 0), 0.36 * Math.hypot(spanX + 4, spanZ + 2, tall + 2), { yaw: 0.28, pitch: 0.4 });
+        }
+    }
+
+    function ends(e) {
+        const a = topOf(e.from);
+        const b = topOf(e.to);
+        if (e.offset) {
+            tmp.subVectors(b, a).setY(0).normalize();
+            const side = new THREE.Vector3(-tmp.z, 0, tmp.x).multiplyScalar(e.offset);
+            a.add(side);
+            b.add(side);
+        }
+
+        tmp.subVectors(b, a).normalize();
+        return [a.clone().addScaledVector(tmp, 0.6), b.clone().addScaledVector(tmp, -0.75)];
+    }
+
+    function tick(dt) {
+        const k = ease(dt, 7);
+        for (const n of nodes.values()) {
+            n.height += (n.targetHeight - n.height) * k;
+            n.excessNow += (n.excessTarget - n.excessNow) * k;
+            const h = Math.max(0.04, n.height * unit);
+            n.pillar.scale.set(1, h, 1);
+            n.pillar.position.copy(n.base).setY(h / 2);
+            n.cap.position.copy(n.base).setY(h + 0.55);
+            n.cap.material.emissiveIntensity += (n.glow - n.cap.material.emissiveIntensity) * k;
+            n.labelSprite.position.copy(n.base).setY(h + 1.9);
+            const r = n.excessNow > 0.05 ? 0.22 + 0.13 * Math.sqrt(n.excessNow) : 0;
+            n.ball.visible = r > 0;
+            n.ball.scale.setScalar(Math.max(r, 0.001));
+            n.ball.position.copy(n.base).setY(h + 1.05 + r).add(new THREE.Vector3(0.55, 0, 0.55));
+        }
+
+        for (const e of edges) {
+            e.ratio += (e.targetRatio - e.ratio) * k;
+            const [a, b] = ends(e);
+            segment(e.pipe, a, b, e.radius);
+            e.water.visible = e.ratio > 0.01;
+            segment(e.water, a, b, Math.max(0.03, e.radius * 0.85 * Math.sqrt(e.ratio)));
+            tmp.subVectors(b, a);
+            const length = tmp.length();
+            tmp.normalize();
+            const tip = a.clone().addScaledVector(tmp, length * 0.62);
+            e.arrow.position.copy(tip);
+            e.arrow.quaternion.setFromUnitVectors(up, tmp);
+            e.arrow.scale.set(e.radius * 1.9, 0.55, e.radius * 1.9);
+            e.arrow.material.color.set(e.ratio > 0.01 ? C.series[0] : C.line);
+        }
+
+        for (const p of pushes) {
+            const edge = edges.find(e => (e.from === p.from && e.to === p.to) || (e.from === p.to && e.to === p.from));
+            if (!edge) continue;
+            let [a, b] = ends(edge);
+            if (edge.from !== p.from) [a, b] = [b, a];
+            a.y += 0.05;
+            b.y += 0.05;
+            segment(p.line, a, b, 0.07);
+        }
+    }
+
+    return { update, tick };
+};
+
 // Home page: simulated annealing walking a cost landscape. Lower ground is a better solution.
 builders.hero = (stage) => {
     const { scene, camera } = stage;

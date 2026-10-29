@@ -246,14 +246,20 @@ public static class BinPackingSolver
     /// Exact minimum number of bins by depth-first branch and bound. Returns null if the search
     /// exceeds <paramref name="nodeLimit"/> nodes before proving optimality.
     /// </summary>
-    public static int? Optimal(BinPackingInstance instance, int nodeLimit = 200_000)
+    public static int? Optimal(BinPackingInstance instance, int nodeLimit = 200_000) => OptimalPacking(instance, nodeLimit)?.Count;
+
+    /// <summary>The exact search's packing (item ids per bin), or null if it ran out of nodes before proving it.</summary>
+    public static List<List<int>>? OptimalPacking(BinPackingInstance instance, int nodeLimit = 200_000)
     {
-        var sizes = instance.Items.Select(i => i.Size).OrderByDescending(s => s).ToArray();
+        var order = instance.Items.OrderByDescending(i => i.Size).ThenBy(i => i.Id).ToArray();
+        var sizes = order.Select(i => i.Size).ToArray();
         var n = sizes.Length;
         var cap = instance.Capacity;
         var lb = instance.LowerBound;
-        var best = Solve(instance, BinRule.FirstFitDecreasing).Count;
-        if (best == lb) return best;
+        var bestPacking = Solve(instance, BinRule.FirstFitDecreasing);
+        var best = bestPacking.Count;
+        if (best == lb) return bestPacking;
+        var binOf = new int[n];
 
         var suffix = new int[n + 1];
         for (var i = n - 1; i >= 0; i--) suffix[i] = suffix[i + 1] + sizes[i];
@@ -274,6 +280,7 @@ public static class BinPackingSolver
             if (k == n)
             {
                 best = used;
+                bestPacking = Enumerable.Range(0, used).Select(b => Enumerable.Range(0, n).Where(i => binOf[i] == b).Select(i => order[i].Id).ToList()).ToList();
                 return;
             }
 
@@ -287,6 +294,7 @@ public static class BinPackingSolver
             {
                 if (free[b] < s || SeenBefore(free, b)) continue;
                 free[b] -= s;
+                binOf[k] = b;
                 Search(k + 1);
                 free[b] += s;
                 if (aborted || best == lb) return;
@@ -294,13 +302,14 @@ public static class BinPackingSolver
 
             if (used + 1 >= best) return;
             free[used] = cap - s;
+            binOf[k] = used;
             used++;
             Search(k + 1);
             used--;
         }
 
         Search(0);
-        return aborted ? null : best;
+        return aborted ? null : bestPacking;
     }
 
     // Two bins with the same free space are interchangeable for the rest of the search.

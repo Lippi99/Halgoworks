@@ -73,6 +73,16 @@ public class BinPackingTests
         Assert.All(BinPackingSolver.Rules, rule => Assert.True(BinPackingSolver.Solve(instance, rule).Count >= optimum));
     }
 
+    [Theory]
+    [MemberData(nameof(Seeds))]
+    public void The_optimal_packing_is_valid_and_has_the_optimal_size(int seed)
+    {
+        var instance = BinPackingInstances.Random(6 + seed % 8, 10, seed);
+        var packing = BinPackingSolver.OptimalPacking(instance)!;
+        AssertValid(instance, packing);
+        Assert.Equal(BinPackingSolver.Optimal(instance), packing.Count);
+    }
+
     [Fact]
     public void Small_items_first_preset_punishes_first_fit()
     {

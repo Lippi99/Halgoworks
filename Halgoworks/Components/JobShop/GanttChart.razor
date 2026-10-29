@@ -1,7 +1,9 @@
 @using Halgoworks.Core.JobShop
+@implements IAsyncDisposable
+@inject IJSRuntime JS
 
 <div class="scroll-x">
-    <svg class="viz" viewBox="0 0 @W @H" style="min-width: 640px" role="img" aria-label="@($"Gantt chart, makespan {Step.Makespan}")">
+    <svg @ref="_svg" class="viz" viewBox="0 0 @W @H" style="min-width: @(MinWidth)px" role="img" aria-label="@($"Gantt chart, makespan {Step.Makespan}")">
         @* Rows *@
         @for (var r = 0; r < Rows; r++)
         {
@@ -53,9 +55,12 @@
             var critical = _critical.Contains((op.Job, op.Index));
             var swapped = Step.Swapped.Any(s => s.Job == op.Job && s.Index == op.Index);
             var label = ByJob ? MachineShort(op.Machine) : JobShopSolver.Label(op.Job, op.Index);
-            <g>
+            var dragged = _drag is { } d && d.Op.Job == op.Job && d.Op.Index == op.Index && d.X is not null;
+            var selected = Selected is { } sel && sel.Job == op.Job && sel.Index == op.Index;
+            <g opacity="@(dragged ? "0.35" : "1")" style="@(Draggable ? "cursor: grab; touch-action: none" : null)"
+               data-drag="@(Draggable && !ByJob ? $"{op.Job}.{op.Index}" : null)" @onclick="() => SelectOp(new OpRef(op.Job, op.Index))">
                 <rect x="@F(x)" y="@F(y)" width="@F(w)" height="@BarH" rx="4" fill="@Palette.Slot(op.Job)"
-                      stroke="@(isFocus || critical || swapped ? Palette.Signal : "none")" stroke-width="@(isFocus ? 3 : 2)"
+                      stroke="@(selected ? Palette.Text1 : isFocus || critical || swapped ? Palette.Signal : "none")" stroke-width="@(isFocus || selected ? 3 : 2)"
                       stroke-dasharray="@(swapped && !isFocus ? "5 3" : null)" class="@(isFocus ? "glow" : null)">
                     <title>@($"{JobShopSolver.Label(op.Job, op.Index)} on {Instance.Machines[op.Machine]}: {op.Start}–{op.End}")</title>
                 </rect>
@@ -67,6 +72,18 @@
                 {
                     <g><text x="@F(x + w / 2)" y="@F(y + BarH / 2.0)" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="600" fill="#fff">@(op.Job + 1)</text></g>
                 }
+            </g>
+        }
+
+        @if (_drag is { X: { } dragX } drag && Step.Scheduled.FirstOrDefault(o => o.Job == drag.Op.Job && o.Index == drag.Op.Index) is { } moving)
+        {
+            var row = ByJob ? moving.Job : moving.Machine;
+            var w = Math.Max(1, X(moving.End) - X(moving.Start) - 1.5);
+            var left = Math.Clamp(dragX - drag.Grab, LabelW, W - RightPad - w);
+            <g pointer-events="none">
+                <rect x="@F(left)" y="@F(RowTop(row) + (RowH - BarH) / 2.0 - 3)" width="@F(w)" height="@(BarH + 6)" rx="5" fill="@Palette.Slot(moving.Job)" fill-opacity="0.85"
+                      stroke="@Palette.Signal" stroke-width="2.5" class="glow" />
+                <line x1="@F(InsertX(moving, left + w / 2))" x2="@F(InsertX(moving, left + w / 2))" y1="@RowTop(row)" y2="@(RowTop(row) + RowH)" stroke="@Palette.Signal" stroke-width="3" />
             </g>
         }
 
@@ -126,8 +143,100 @@
     [Parameter, EditorRequired] public JobShopStep Step { get; set; } = default!;
     [Parameter] public bool ByJob { get; set; }
 
+    /// <summary>Below this width the chart scrolls sideways instead of shrinking further.</summary>
+    [Parameter] public int MinWidth { get; set; } = 640;
+
     /// <summary>Right end of the time axis, fixed for the whole trace so bars don't jump around.</summary>
     [Parameter] public int Horizon { get; set; } = 10;
+
+    /// <summary>Play mode: bars can be dragged along their machine row (machine view only).</summary>
+    [Parameter] public bool Draggable { get; set; }
+
+    /// <summary>A bar was dropped: the operation and the time under the middle of where it landed.</summary>
+    [Parameter] public EventCallback<(OpRef Op, double Time)> OnDrop { get; set; }
+
+    [Parameter] public EventCallback<OpRef> OnSelect { get; set; }
+    [Parameter] public OpRef? Selected { get; set; }
+
+    private ElementReference _svg;
+    private IJSObjectReference? _dragModule;
+    private DotNetObjectReference<GanttChart>? _self;
+    private (OpRef Op, double Grab, double? X)? _drag;
+
+    private double TimeAt(double x) => (x - LabelW) / (W - LabelW - RightPad) * Horizon;
+
+    // Where the dragged bar would slot in among the other operations on its machine, for the insertion marker.
+    private double InsertX(ScheduledOp moving, double centerX)
+    {
+        var others = Step.Scheduled.Where(o => o.Machine == moving.Machine && (o.Job != moving.Job || o.Index != moving.Index)).OrderBy(o => o.Start).ToList();
+        var t = TimeAt(centerX);
+        var before = others.Where(o => (o.Start + o.End) / 2.0 < t).ToList();
+        return before.Count == 0 ? X(others.Count == 0 ? 0 : Math.Min(others[0].Start, moving.Start)) - 2 : X(before[^1].End) + 0.5;
+    }
+
+    private async Task SelectOp(OpRef op)
+    {
+        if (Draggable) await OnSelect.InvokeAsync(op);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            _dragModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/drag.js");
+            _self = DotNetObjectReference.Create(this);
+            await _dragModule.InvokeVoidAsync("attach", _svg, _self);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    [JSInvokable]
+    public void OnDragStart(string key, double x, double y)
+    {
+        if (!Draggable || ByJob) return;
+        var parts = key.Split('.');
+        if (parts.Length != 2 || !int.TryParse(parts[0], CultureInfo.InvariantCulture, out var job) || !int.TryParse(parts[1], CultureInfo.InvariantCulture, out var index)) return;
+        if (Step.Scheduled.FirstOrDefault(o => o.Job == job && o.Index == index) is not { } op) return;
+        _drag = (new OpRef(job, index), x - X(op.Start), null);
+    }
+
+    [JSInvokable]
+    public void OnDragMove(string key, double x, double y)
+    {
+        if (_drag is not { } d) return;
+        _drag = d with { X = x };
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnDragEnd(string key, double x, double y, bool moved)
+    {
+        if (_drag is not { } d) return;
+        _drag = null;
+        var moving = Step.Scheduled.First(o => o.Job == d.Op.Job && o.Index == d.Op.Index);
+        var width = X(moving.End) - X(moving.Start);
+        if (moved) await OnDrop.InvokeAsync((d.Op, TimeAt(x - d.Grab + width / 2)));
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_dragModule is not null)
+        {
+            try
+            {
+                await _dragModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        _self?.Dispose();
+    }
 
     private const int W = 1000;
     private const int LabelW = 92;

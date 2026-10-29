@@ -21,6 +21,10 @@ public static class BinPackingInstances
     public static BinPackingInstance SmallFirst() => new("Small items first", 10,
         new[] { 3, 3, 3, 3, 3, 3, 7, 7, 7 }.Select((s, i) => new BinItem(i, s)).ToList());
 
+    /// <summary>Few enough items for the integer-program view to show every variable.</summary>
+    public static BinPackingInstance SixItems() => new("Six items", 10,
+        new[] { 6, 5, 5, 4, 3, 2 }.Select((s, i) => new BinItem(i, s)).ToList());
+
     /// <summary>Virtual machines (GB of RAM) placed on 64 GB hosts.</summary>
     public static BinPackingInstance CloudServers() => new("Cloud servers", 64,
         new[] { 32, 16, 8, 24, 12, 4, 40, 8, 16, 20, 28, 6, 10, 14 }.Select((s, i) => new BinItem(i, s)).ToList(),

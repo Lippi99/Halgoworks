@@ -1606,7 +1606,7 @@ input[type="range"]::-moz-range-thumb {
     font-family: var(--font-display);
     font-weight: 700;
     /* Limited by height too, so all five verbs and the caption fit on short, wide screens. */
-    font-size: clamp(3.4rem, min(9.5vw, 11.5vh), 8.4rem);
+    font-size: clamp(3.2rem, min(9.5vw, 9.6vh), 8.4rem);
     line-height: 0.86;
     letter-spacing: -0.015em;
     color: var(--text-1);
@@ -2223,4 +2223,877 @@ h1:focus {
 
 .decision.placeholder {
     visibility: hidden;
+}
+
+/* ------------------------------------------------------------------ Sharing */
+
+.share {
+    display: flex;
+    align-items: end;
+    gap: 10px;
+}
+
+.share-fallback {
+    display: grid;
+    gap: 4px;
+    font-size: var(--t-xs);
+    color: var(--text-3);
+}
+
+.share-fallback .input {
+    width: 260px;
+    padding-right: 10px;
+    background-image: none;
+    cursor: text;
+}
+
+.notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 10px 12px 10px 16px;
+    border: 1px solid var(--bad);
+    border-radius: var(--r-2);
+    background: #2a1a22;
+    color: var(--text-1);
+    font-size: var(--t-sm);
+}
+
+.tree-stats {
+    font-size: var(--t-sm);
+    color: var(--text-2);
+}
+
+.tree-stats strong {
+    color: var(--text-1);
+}
+
+/* The stage scrolls as a whole; its children keep their natural height instead of being squeezed. */
+.stage-body > * {
+    flex-shrink: 0;
+}
+
+/* ------------------------------------------------------------------ Integer program view */
+
+.ip-model {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.8;
+}
+
+.ip-model .term {
+    border-radius: 4px;
+    padding: 0 2px;
+}
+
+.ip-model .term.frac {
+    color: var(--signal);
+    font-weight: 700;
+}
+
+.ip-model .term.one {
+    color: var(--text-1);
+    font-weight: 700;
+}
+
+.ip-model .term.fixed {
+    text-decoration: underline;
+    text-decoration-color: var(--text-3);
+    text-underline-offset: 4px;
+}
+
+.ip-model .term:not(.frac):not(.one):not(.fixed) {
+    color: var(--text-3);
+}
+
+.ip-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 26px;
+    font-size: var(--t-sm);
+    color: var(--text-2);
+}
+
+.ip-status strong {
+    color: var(--text-1);
+    font-variant-numeric: tabular-nums;
+}
+
+.ip-vars {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 4px;
+}
+
+.ip-vars li {
+    display: grid;
+    grid-template-columns: minmax(150px, 220px) minmax(80px, 1fr) 52px 100px;
+    align-items: center;
+    gap: 12px;
+    font-size: var(--t-sm);
+}
+
+.ip-name {
+    font-family: var(--font-math);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ip-name .muted {
+    font-family: var(--font-ui);
+    margin-left: 6px;
+}
+
+.ip-bar {
+    height: 10px;
+    border-radius: 3px;
+    background: var(--ink-0);
+    border: 1px solid var(--line);
+    overflow: hidden;
+}
+
+.ip-bar span {
+    display: block;
+    height: 100%;
+    background: var(--s1);
+}
+
+.ip-vars li.frac .ip-bar span {
+    background: var(--signal);
+}
+
+.ip-vars li.frac .ip-val,
+.ip-vars li.frac .ip-tag {
+    color: var(--signal);
+    font-weight: 600;
+}
+
+.ip-val {
+    text-align: right;
+}
+
+.ip-tag {
+    font-size: var(--t-xs);
+    color: var(--text-3);
+}
+
+.ip-grid {
+    border-collapse: separate;
+    border-spacing: 3px;
+    font-size: var(--t-sm);
+    font-variant-numeric: tabular-nums;
+}
+
+.ip-grid th {
+    padding: 4px 10px;
+    font-weight: 500;
+    color: var(--text-2);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.ip-grid td {
+    width: 64px;
+    height: 32px;
+    text-align: center;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--s1) calc(var(--fill, 0) * 85%), var(--ink-0));
+    color: var(--text-1);
+    font-weight: 600;
+}
+
+.ip-grid td.frac {
+    background: color-mix(in srgb, var(--signal) calc(var(--fill, 0) * 70% + 15%), var(--ink-0));
+    color: var(--signal-ink);
+}
+
+.ip-grid td.fixed {
+    border-color: var(--text-2);
+    border-style: dashed;
+}
+
+.ip-grid td.ip-off {
+    background: repeating-linear-gradient(135deg, transparent 0 5px, var(--line-soft) 5px 7px);
+    border-color: transparent;
+}
+
+.ip-grid tr.ip-y th {
+    color: var(--text-1);
+}
+
+/* ------------------------------------------------------------------ Matching */
+
+.match-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--t-sm);
+}
+
+/* ------------------------------------------------------------------ Play and edit modes */
+
+.btn.primary {
+    background: var(--signal);
+    border-color: var(--signal);
+    color: var(--signal-ink);
+    font-weight: 600;
+}
+
+.btn.primary:hover:not(:disabled) {
+    background: #ffc266;
+    border-color: #ffc266;
+}
+
+.btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.btn.small {
+    height: 28px;
+    padding: 0 10px;
+    font-size: var(--t-xs);
+}
+
+.play-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.play-message {
+    margin-top: 12px;
+    padding: 8px 12px;
+    border-radius: var(--r-2);
+    font-size: var(--t-sm);
+    border: 1px solid var(--line);
+}
+
+.play-message.bad {
+    border-color: var(--bad);
+    color: var(--bad-text);
+    background: rgba(208, 59, 59, 0.08);
+}
+
+.play-message.ok {
+    color: var(--text-2);
+}
+
+.play-verdict {
+    margin-bottom: 14px;
+    color: var(--text-2);
+    font-size: var(--t-sm);
+    line-height: 1.6;
+}
+
+.play-verdict strong {
+    color: var(--text-1);
+}
+
+.play-figures {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 18px;
+    margin: 0;
+}
+
+.play-figures dt {
+    font-size: var(--t-xs);
+    color: var(--text-3);
+}
+
+.play-figures dd {
+    margin: 2px 0 0;
+    font-size: var(--t-xl);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.drop-zone {
+    border: 1.5px dashed var(--line);
+    border-radius: var(--r-2);
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.drop-zone.over {
+    border-color: var(--signal);
+    background: var(--signal-soft);
+}
+
+.draggable {
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+}
+
+.draggable:active {
+    cursor: grabbing;
+}
+
+.selected-outline {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+}
+
+.edit-panel .side-section h3 {
+    font-size: var(--t-md);
+    margin-bottom: 10px;
+}
+
+.edit-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: var(--t-sm);
+}
+
+.edit-row > span:first-child {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stepper {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: var(--r-2);
+    overflow: hidden;
+}
+
+.stepper button {
+    width: 28px;
+    height: 28px;
+    border: 0;
+    background: var(--ink-2);
+    color: var(--text-1);
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+.stepper button:hover:not(:disabled) {
+    background: var(--ink-3);
+}
+
+.stepper button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.stepper output {
+    min-width: 42px;
+    text-align: center;
+    font-size: var(--t-sm);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.edit-hint {
+    font-size: var(--t-xs);
+    color: var(--text-3);
+    line-height: 1.5;
+}
+
+/* Bin packing play */
+.shelf {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-height: 58px;
+    padding: 10px;
+}
+
+.play-bins {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: flex-end;
+}
+
+.play-bin-wrap {
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+}
+
+.play-bin {
+    width: 64px;
+    height: 250px;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 2px;
+    padding: 3px;
+    border-style: solid;
+    background: var(--ink-0);
+    cursor: pointer;
+}
+
+.play-bin.new {
+    border-style: dashed;
+    background: transparent;
+    justify-content: center;
+}
+
+.play-bin.full {
+    opacity: 0.5;
+}
+
+.play-new {
+    align-self: center;
+    font-size: var(--t-xs);
+    color: var(--signal);
+    font-weight: 600;
+    text-align: center;
+}
+
+.play-block {
+    display: grid;
+    place-items: center;
+    border-radius: 3px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.play-block.focus {
+    outline: 2px solid var(--signal);
+    outline-offset: 1px;
+}
+
+.play-bin-label {
+    font-size: var(--t-xs);
+    color: var(--text-3);
+    white-space: nowrap;
+}
+
+.knapsack-bag {
+    padding: 12px;
+}
+
+/* ------------------------------------------------------------------ Race mode */
+
+.race-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+}
+
+.race-picker-label {
+    margin-right: 6px;
+    font-size: var(--t-xs);
+    font-weight: 600;
+    color: var(--text-2);
+}
+
+.chip-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 30px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--ink-1);
+    color: var(--text-2);
+    font: inherit;
+    font-size: var(--t-xs);
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.chip-toggle:hover:not(:disabled) {
+    border-color: var(--text-3);
+    color: var(--text-1);
+}
+
+.chip-toggle.on {
+    border-color: var(--text-3);
+    background: var(--ink-3);
+    color: var(--text-1);
+}
+
+.chip-toggle:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.race-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex: none;
+}
+
+/* Same fixed height as the lab body, so racing doesn't push the page around either. */
+.race-body {
+    display: grid;
+    grid-template-columns: repeat(var(--lanes, 2), minmax(0, 1fr));
+    grid-template-rows: minmax(0, 1fr);
+    height: clamp(560px, calc(100vh - 210px), 820px);
+}
+
+.race-lane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border-right: 1px solid var(--line);
+    background-color: var(--ink-1);
+    background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+}
+
+.race-lane:last-child {
+    border-right: 0;
+}
+
+.race-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px 6px;
+}
+
+.race-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-display);
+    font-size: var(--t-xl);
+    font-weight: 600;
+    line-height: 1.15;
+}
+
+.race-score {
+    display: grid;
+    justify-items: end;
+    font-size: var(--t-xs);
+    color: var(--text-3);
+}
+
+.race-score strong {
+    font-size: var(--t-xl);
+    color: var(--text-1);
+    font-variant-numeric: tabular-nums;
+}
+
+.race-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    min-height: 44px;
+    padding: 0 16px 8px;
+    font-size: var(--t-xs);
+}
+
+.race-track {
+    flex: 1 0 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--ink-3);
+    overflow: hidden;
+}
+
+.race-track span {
+    display: block;
+    height: 100%;
+    background: var(--s1);
+    transition: width 0.2s;
+}
+
+.race-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: var(--ink-3);
+    color: var(--text-1);
+    font-weight: 600;
+}
+
+.race-badge.best {
+    background: var(--signal);
+    color: var(--signal-ink);
+}
+
+.race-viz {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    scrollbar-width: thin;
+    padding: 4px 12px;
+}
+
+.race-viz > * {
+    flex-shrink: 0;
+}
+
+.race-text {
+    height: 8.6em;
+    flex: none;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    padding: 10px 16px 12px;
+    border-top: 1px solid var(--line);
+    background: var(--ink-0);
+    font-size: var(--t-xs);
+    line-height: 1.5;
+    color: var(--text-2);
+}
+
+.race-text .race-title {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--text-1);
+    font-size: var(--t-sm);
+}
+
+.race-text p {
+    margin: 0;
+}
+
+.race-summary {
+    min-height: 2.8em;
+    margin: 0;
+    padding: 10px 16px;
+    border-top: 1px solid var(--line);
+    font-size: var(--t-sm);
+    color: var(--text-2);
+}
+
+@media (max-width: 900px) {
+    .race-body {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: none;
+        height: auto;
+    }
+
+    .race-lane {
+        height: 620px;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+    }
+}
+
+/* ------------------------------------------------------------------ Scale mode */
+
+.scale-controls {
+    display: grid;
+    gap: 14px;
+    margin-top: 12px;
+}
+
+.scale-progress {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 10px 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-2);
+    background: var(--ink-2);
+    font-size: var(--t-sm);
+    color: var(--text-2);
+}
+
+.scale-progress .race-track {
+    grid-column: 1 / -1;
+}
+
+.spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--ink-3);
+    border-top-color: var(--signal);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.scale-caption {
+    margin: 4px 0 0;
+    font-size: var(--t-sm);
+    color: var(--text-2);
+}
+
+.scale-caption strong {
+    color: var(--text-1);
+}
+
+.scale-chart {
+    max-width: 760px;
+}
+
+.scale-chart h3 {
+    margin: 8px 0 2px;
+    font-size: var(--t-md);
+}
+
+.scale-chart p {
+    margin: 0 0 8px;
+    font-size: var(--t-xs);
+}
+
+.field.inline {
+    grid-auto-flow: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.muted.small {
+    margin: 10px 0 0;
+    font-size: var(--t-xs);
+    line-height: 1.5;
+}
+
+.scale-figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 10px 18px;
+    margin: 0;
+}
+
+.scale-figures dt {
+    font-size: var(--t-xs);
+    color: var(--text-3);
+}
+
+.scale-figures dd {
+    margin: 2px 0 0;
+    font-size: var(--t-lg);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ Real street map (Leaflet) */
+
+.realmap {
+    width: 100%;
+    height: clamp(380px, 58vh, 600px);
+    border: 1px solid var(--line);
+    border-radius: var(--r-2);
+    background: var(--ink-0);
+    cursor: crosshair;
+}
+
+.realmap .leaflet-tile-pane {
+    /* A dark map from the standard light tiles: invert, then turn the hues back around. */
+    filter: invert(1) hue-rotate(180deg) brightness(0.82) contrast(0.92) saturate(0.6);
+}
+
+.realmap .leaflet-control-attribution {
+    background: rgba(14, 24, 40, 0.82);
+    color: var(--text-3);
+    font-size: 11px;
+}
+
+.realmap .leaflet-control-attribution a {
+    color: var(--text-2);
+}
+
+.realmap .leaflet-bar a {
+    background: var(--ink-2);
+    border-color: var(--line);
+    color: var(--text-1);
+}
+
+.realmap .leaflet-bar a:hover {
+    background: var(--ink-3);
+}
+
+.realmap .leaflet-tooltip {
+    background: var(--ink-2);
+    border: 1px solid var(--line);
+    color: var(--text-1);
+    font: 600 12px var(--font-ui);
+    box-shadow: none;
+}
+
+.realmap .leaflet-tooltip-top::before {
+    border-top-color: var(--line);
+}
+
+.realmap-depot span {
+    display: block;
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--ink-0);
+    border-radius: 5px;
+    background: #d8e1ee;
+    box-shadow: 0 0 0 2px rgba(216, 225, 238, 0.35);
+}
+
+.road-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--t-xs);
+    color: var(--text-2);
+}
+
+.road-status.problem {
+    color: var(--bad-text);
+}
+
+.road-status .spinner {
+    width: 12px;
+    height: 12px;
+}
+
+.scale-charts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    max-width: 760px;
+}
+
+.scale-charts h3 {
+    margin: 8px 0 6px;
+    font-size: var(--t-md);
+}
+
+.scale-charts h3 small {
+    margin-left: 6px;
+    font-size: var(--t-xs);
+    font-weight: 400;
+}
+
+.scale-table tbody tr {
+    cursor: pointer;
+}
+
+.scale-table tbody tr:hover td {
+    background: var(--ink-2);
+}
+
+.scale-table tr.pending td {
+    color: var(--text-3);
+    cursor: default;
 }

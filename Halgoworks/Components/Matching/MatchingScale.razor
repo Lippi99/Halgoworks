@@ -1,0 +1,110 @@
+@using Halgoworks.Core.Matching
+@using Halgoworks.Core.MaxFlow
+
+<ScaleView Jobs="_jobs" Version="_version" Summary="@($"{_size} workers, {_size} tasks, {_instance.Pairs.Count:#,0} allowed pairs")" ValueLabel="Pairs matched"
+           Format="@(v => Palette.F(v))" Refs="_refs">
+    <Legend>
+        <li><span class="swatch line" style="background: @Palette.Series[0]"></span>Matched pair</li>
+        <li><span class="swatch line" style="background: @Palette.Muted"></span>Allowed, not used</li>
+        <li><span class="swatch" style="background: @Palette.Ink2; border: 1px solid @Palette.Text3; border-radius: 50%"></span>Left unmatched</li>
+    </Legend>
+    <Controls>
+        <label class="field">
+            <span>Workers and tasks <output>@_size each</output></span>
+            <input type="range" min="20" max="300" step="20" value="@_size" style="--pct: @Pct()" @onchange="SetSize" />
+        </label>
+        <label class="field">
+            <span>Options per worker <output>about @_degree</output></span>
+            <input type="range" min="1" max="6" value="@_degree" style="--pct: @Palette.F(100.0 * (_degree - 1) / 5, "0.#")%" @onchange="SetDegree" />
+        </label>
+        <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New pairs</button>
+        <p class="muted small">
+            Each worker may take a few random tasks. Greedy takes allowed pairs in order whenever both are free; the flow algorithms
+            always find a maximum matching. On these unit-capacity networks Dinic behaves like Hopcroft–Karp.
+        </p>
+    </Controls>
+    <Visual>
+        <MatchingScaleView Instance="_instance" Matched="(IReadOnlyList<int>)context.Result.Solution!" />
+    </Visual>
+</ScaleView>
+
+@code {
+    /// <summary>"size.degree.seed", for share links.</summary>
+    [Parameter] public string? State { get; set; }
+    [Parameter] public EventCallback<string> StateChanged { get; set; }
+
+    private int _size = 120;
+    private int _degree = 2;
+    private int _seed = 1;
+    private int _version;
+    private bool _loaded;
+    private MatchingInstance _instance = default!;
+    private IReadOnlyList<ScaleJob> _jobs = [];
+    private IReadOnlyList<RefLine> _refs = [];
+
+    protected override void OnParametersSet()
+    {
+        if (_loaded) return;
+        _loaded = true;
+        if (State?.Split('.') is [var size, var degree, var seed] && int.TryParse(size, out var n) && int.TryParse(degree, out var d) && int.TryParse(seed, out var s))
+        {
+            _size = Math.Clamp(n / 20 * 20, 20, 300);
+            _degree = Math.Clamp(d, 1, 6);
+            _seed = Math.Clamp(s, 1, 1_000_000);
+        }
+
+        Build();
+    }
+
+    private void Build()
+    {
+        var instance = _instance = MatchingInstances.Random(_size, _size, (double)_degree / _size, _seed);
+        _refs = [new RefLine("Everyone matched", _size)];
+        ScaleJob Flow(string name, FlowAlgorithm algorithm) => new(name, () =>
+        {
+            var matched = MatchingSolver.Solve(instance, algorithm);
+            return new ScaleResult(matched.Count, matched, "maximum");
+        });
+
+        _jobs =
+        [
+            new("Greedy", () =>
+            {
+                var matched = MatchingSolver.Greedy(instance);
+                return new ScaleResult(matched.Count, matched);
+            }),
+            Flow("Edmonds–Karp", FlowAlgorithm.EdmondsKarp),
+            Flow("Ford–Fulkerson", FlowAlgorithm.FordFulkerson),
+            Flow("Dinic", FlowAlgorithm.Dinic),
+            Flow("Push–relabel", FlowAlgorithm.PushRelabel),
+        ];
+        _version++;
+    }
+
+    private string Pct() => Palette.F(100.0 * (_size - 20) / 280, "0.#") + "%";
+
+    private Task Save() => StateChanged.InvokeAsync($"{_size}.{_degree}.{_seed}");
+
+    private Task SetSize(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var size)) return Task.CompletedTask;
+        _size = size;
+        Build();
+        return Save();
+    }
+
+    private Task SetDegree(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var degree)) return Task.CompletedTask;
+        _degree = degree;
+        Build();
+        return Save();
+    }
+
+    private Task Reroll()
+    {
+        _seed = Random.Shared.Next(1, 100_000);
+        Build();
+        return Save();
+    }
+}

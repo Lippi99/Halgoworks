@@ -10,8 +10,12 @@ public static class VrpSolver
         "      if d(a,c) + d(b,d) < d(a,b) + d(c,d): reverse b … c",
     ];
 
+    public static bool IsMetaheuristic(VrpAlgorithm algorithm) => algorithm is VrpAlgorithm.SimulatedAnnealing or VrpAlgorithm.Genetic;
+
     public static AlgorithmInfo Info(VrpAlgorithm algorithm, bool polish)
     {
+        if (algorithm == VrpAlgorithm.SimulatedAnnealing) return VrpMetaheuristics.AnnealingInfo;
+        if (algorithm == VrpAlgorithm.Genetic) return VrpMetaheuristics.GeneticInfo;
         var info = algorithm switch
         {
             VrpAlgorithm.Sweep => new AlgorithmInfo(
@@ -62,7 +66,23 @@ public static class VrpSolver
 
     public static IReadOnlyList<VrpStep> Trace(VrpInstance instance, VrpAlgorithm algorithm, bool polish)
     {
-        var tracer = new Tracer(instance, algorithm);
+        if (algorithm == VrpAlgorithm.SimulatedAnnealing) return VrpMetaheuristics.TraceAnnealing(instance);
+        if (algorithm == VrpAlgorithm.Genetic) return VrpMetaheuristics.TraceGenetic(instance);
+        var tracer = Run(instance, algorithm, polish, record: true);
+        return tracer.Colorize();
+    }
+
+    /// <summary>Final routes only. Skips the per-step snapshots, so it scales to large instances.</summary>
+    public static IReadOnlyList<int[]> Solve(VrpInstance instance, VrpAlgorithm algorithm, bool polish) => algorithm switch
+    {
+        VrpAlgorithm.SimulatedAnnealing => VrpMetaheuristics.SolveAnnealing(instance),
+        VrpAlgorithm.Genetic => VrpMetaheuristics.SolveGenetic(instance),
+        _ => Run(instance, algorithm, polish, record: false).FinalRoutes(),
+    };
+
+    private static Tracer Run(VrpInstance instance, VrpAlgorithm algorithm, bool polish, bool record)
+    {
+        var tracer = new Tracer(instance, algorithm, record);
         switch (algorithm)
         {
             case VrpAlgorithm.Sweep: tracer.Sweep(); break;
@@ -74,12 +94,8 @@ public static class VrpSolver
         if (polish) tracer.Polish(baseLines);
         // The final step points at the base algorithm's "return the routes", which is its last line.
         tracer.Finish(baseLines);
-        return tracer.Colorize();
+        return tracer;
     }
-
-    /// <summary>Final routes only.</summary>
-    public static IReadOnlyList<int[]> Solve(VrpInstance instance, VrpAlgorithm algorithm, bool polish) =>
-        Trace(instance, algorithm, polish)[^1].Routes;
 
     public static RouteStats Evaluate(VrpInstance instance, IReadOnlyList<int> route)
     {
@@ -120,7 +136,7 @@ public static class VrpSolver
     public static double Cost(VrpInstance instance, IReadOnlyList<int[]> routes) =>
         TotalDistance(instance, routes) * instance.FuelPerKm + routes.Count(r => r.Length > 0) * instance.TruckCost;
 
-    private sealed class Tracer(VrpInstance inst, VrpAlgorithm algorithm)
+    private sealed class Tracer(VrpInstance inst, VrpAlgorithm algorithm, bool record)
     {
         private readonly List<VrpStep> _steps = [];
         private List<List<int>> _routes = [];
@@ -136,12 +152,19 @@ public static class VrpSolver
         private IReadOnlyList<int> Pending() =>
             inst.Customers.Select(c => c.Id).Where(id => !_routes.Any(r => r.Contains(id))).ToList();
 
-        private void Add(VrpStep step) => _steps.Add(step with
+        public IReadOnlyList<int[]> FinalRoutes() => Snapshot();
+
+        private void Add(VrpStep step)
+        {
+            if (record) _steps.Add(Snap(step));
+        }
+
+        private VrpStep Snap(VrpStep step) => step with
         {
             Routes = Snapshot(),
             Distance = Total(),
             Pending = Pending(),
-        });
+        };
 
         private string Reason(IReadOnlyList<int> route)
         {

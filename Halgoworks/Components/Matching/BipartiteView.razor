@@ -1,0 +1,99 @@
+@using Halgoworks.Core.Matching
+
+<svg class="viz" viewBox="0 0 @W @H" style="max-width: 900px; margin: 0 auto;" role="img"
+     aria-label="@($"{Instance.LeftTitle} and {Instance.RightTitle}: {Step.Matched.Count} matched")">
+    <text x="@LeftX" y="22" text-anchor="middle" font-size="13" font-weight="600" class="t-2">@Instance.LeftTitle</text>
+    <text x="@RightX" y="22" text-anchor="middle" font-size="13" font-weight="600" class="t-2">@Instance.RightTitle</text>
+
+    @for (var i = 0; i < Instance.Pairs.Count; i++)
+    {
+        var p = Instance.Pairs[i];
+        var matched = _matched.Contains(i);
+        var add = Step.PathAdds.Contains(i);
+        var remove = Step.PathRemoves.Contains(i);
+        var scanned = Step.Scanned.Contains(i);
+        var (stroke, width, dash, glow) = EdgeStyle(add, remove, scanned, matched);
+        <line x1="@(LeftX + R)" y1="@F(Y(p.Left, Instance.Left.Count))" x2="@(RightX - R)" y2="@F(Y(p.Right, Instance.Right.Count))"
+              stroke="@stroke" stroke-width="@F(width)" stroke-dasharray="@dash" stroke-linecap="round" class="@(glow ? "glow" : null)">
+            <title>@($"{Instance.Left[p.Left]} – {Instance.Right[p.Right]}{(matched ? " (matched)" : "")}")</title>
+        </line>
+    }
+
+    @for (var side = 0; side < 2; side++)
+    {
+        var names = side == 0 ? Instance.Left : Instance.Right;
+        for (var i = 0; i < names.Count; i++)
+        {
+            var x = side == 0 ? LeftX : RightX;
+            var y = Y(i, names.Count);
+            var taken = side == 0 ? _leftTaken.Contains(i) : _rightTaken.Contains(i);
+            var focus = Step.Focus.Contains((side, i));
+            var picked = Selected == (side, i);
+            var node = (side, i);
+            <g style="@(Editable ? "cursor: pointer" : null)" @onclick="() => NodeClick(node)">
+                @if (picked)
+                {
+                    <circle cx="@x" cy="@F(y)" r="@(R + 6)" fill="none" stroke="@Palette.Text1" stroke-width="2" stroke-dasharray="3 3" />
+                }
+                @if (focus)
+                {
+                    <circle cx="@x" cy="@F(y)" r="@(R + 5)" fill="none" stroke="@Palette.Signal" stroke-width="2.5" class="glow" />
+                }
+                <circle cx="@x" cy="@F(y)" r="@R" fill="@(taken ? "#1d3a63" : Palette.Ink2)" stroke="@(taken ? Palette.Series[0] : Palette.Text3)" stroke-width="2" />
+                <text x="@(side == 0 ? x - R - 10 : x + R + 10)" y="@F(y)" text-anchor="@(side == 0 ? "end" : "start")" dominant-baseline="central"
+                      font-size="14" font-weight="@(taken ? "600" : "400")" class="@(taken ? "t-1" : "t-2")">@names[i]</text>
+            </g>
+        }
+    }
+</svg>
+
+@code {
+    [Parameter, EditorRequired] public MatchingInstance Instance { get; set; } = default!;
+    [Parameter, EditorRequired] public MatchingStep Step { get; set; } = default!;
+
+    /// <summary>Edit mode: click a member of one group, then one of the other, to allow or forbid that pair.</summary>
+    [Parameter] public bool Editable { get; set; }
+
+    [Parameter] public (int Side, int Index)? Selected { get; set; }
+    [Parameter] public EventCallback<(int Side, int Index)> OnNodeClick { get; set; }
+
+    private async Task NodeClick((int Side, int Index) node)
+    {
+        if (Editable) await OnNodeClick.InvokeAsync(node);
+    }
+
+    private const int W = 760;
+    private const int LeftX = 250;
+    private const int RightX = 510;
+    private const int R = 13;
+    private const int Row = 54;
+
+    private HashSet<int> _matched = [];
+    private HashSet<int> _leftTaken = [];
+    private HashSet<int> _rightTaken = [];
+
+    private int H => Math.Max(Instance.Left.Count, Instance.Right.Count) * Row + 40;
+
+    protected override void OnParametersSet()
+    {
+        _matched = Step.Matched.ToHashSet();
+        _leftTaken = Step.Matched.Select(i => Instance.Pairs[i].Left).ToHashSet();
+        _rightTaken = Step.Matched.Select(i => Instance.Pairs[i].Right).ToHashSet();
+    }
+
+    // Both columns are centered vertically, so a shorter side sits in the middle.
+    private double Y(int i, int count)
+    {
+        var rows = Math.Max(Instance.Left.Count, Instance.Right.Count);
+        return 40 + Row / 2.0 + (rows - count) * Row / 2.0 + i * Row;
+    }
+
+    private static (string Stroke, double Width, string? Dash, bool Glow) EdgeStyle(bool add, bool remove, bool scanned, bool matched) =>
+        add ? (Palette.Signal, 4.0, null, true)
+        : remove ? (Palette.BadText, 3.5, (string?)"7 5", false)
+        : scanned ? (Palette.Signal, 2.0, null, true)
+        : matched ? (Palette.Series[0], 4.0, null, false)
+        : (Palette.Line, 1.5, null, false);
+
+    private static string F(double v) => Palette.F(v, "0.#");
+}

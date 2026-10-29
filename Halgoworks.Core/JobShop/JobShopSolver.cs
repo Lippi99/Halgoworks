@@ -465,6 +465,37 @@ public static class JobShopSolver
 
     public sealed record Evaluation(int Makespan, List<ScheduledOp> Schedule, List<OpRef> Critical, List<int> CriticalIds);
 
+    /// <summary>
+    /// Turns an operation order for every machine into the earliest schedule that respects it. Returns null if an order lists the
+    /// wrong operations, or if the orders contradict the jobs' own sequences (a cycle: every operation waiting on another).
+    /// </summary>
+    public static Evaluation? EvaluateOrder(JobShopInstance instance, IReadOnlyList<IReadOnlyList<OpRef>> machineOrders)
+    {
+        if (machineOrders.Count != instance.Machines.Count) return null;
+        var model = new SequenceModel(instance, []);
+        var seq = new int[machineOrders.Count][];
+        for (var m = 0; m < machineOrders.Count; m++)
+        {
+            var expected = instance.Jobs.SelectMany(j => j.Ops).Where(o => o.Machine == m).Select(o => new OpRef(o.Job, o.Index)).ToHashSet();
+            var order = machineOrders[m];
+            if (order.Count != expected.Count || !order.All(expected.Contains) || order.Distinct().Count() != order.Count) return null;
+            seq[m] = order.Select(model.Id).ToArray();
+        }
+
+        return model.Evaluate(seq);
+    }
+
+    /// <summary>A deliberately plain starting order: on every machine, jobs simply go in number order.</summary>
+    public static IReadOnlyList<IReadOnlyList<OpRef>> JobOrder(JobShopInstance instance) => Enumerable.Range(0, instance.Machines.Count)
+        .Select(m => (IReadOnlyList<OpRef>)instance.Jobs.SelectMany(j => j.Ops).Where(o => o.Machine == m).OrderBy(o => o.Job).ThenBy(o => o.Index)
+            .Select(o => new OpRef(o.Job, o.Index)).ToList())
+        .ToList();
+
+    /// <summary>The machine orders behind a schedule (operations sorted by start time on each machine).</summary>
+    public static IReadOnlyList<IReadOnlyList<OpRef>> OrderOf(JobShopInstance instance, IReadOnlyList<ScheduledOp> schedule) => Enumerable.Range(0, instance.Machines.Count)
+        .Select(m => (IReadOnlyList<OpRef>)schedule.Where(o => o.Machine == m).OrderBy(o => o.Start).Select(o => new OpRef(o.Job, o.Index)).ToList())
+        .ToList();
+
     /// <summary>A schedule as one operation order per machine, evaluated as a longest-path problem.</summary>
     private sealed class SequenceModel
     {
@@ -498,6 +529,8 @@ public static class JobShopSolver
         public int[][] Initial { get; }
 
         public OpRef Ref(int id) => new(_job[id], _index[id]);
+
+        public int Id(OpRef op) => _offset[op.Job] + op.Index;
 
         public int[][] Swap(int[][] seq, (int A, int B) move)
         {
