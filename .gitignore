@@ -1,0 +1,29 @@
+# Build output
+bin/
+obj/
+publish/
+artifacts/
+
+# Test results and coverage
+TestResults/
+coverage*.xml
+*.coverage
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Rider: shared settings in .idea are kept; .idea/.idea.Halgoworks/.idea/.gitignore excludes the per-user files.
+*.DotSettings.user
+
+# VS Code
+.vscode/*
+!.vscode/extensions.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node (only if tooling is added later)
+node_modules/

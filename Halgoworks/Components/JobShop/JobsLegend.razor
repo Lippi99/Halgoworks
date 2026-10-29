@@ -1,0 +1,47 @@
+@using Halgoworks.Core.JobShop
+
+<ul class="jobs" aria-label="Jobs and their machine order">
+    @foreach (var job in Instance.Jobs)
+    {
+        var finish = Step.Scheduled.Where(o => o.Job == job.Id).Select(o => o.End).DefaultIfEmpty(0).Max();
+        var done = Step.Scheduled.Count(o => o.Job == job.Id) == job.Ops.Count;
+        <li>
+            <span class="swatch" style="background: @Palette.Slot(job.Id)"></span>
+            <strong>@job.Name</strong>
+            <span class="job-route">
+                @foreach (var op in job.Ops)
+                {
+                    var scheduled = _done.Contains((op.Job, op.Index));
+                    var focus = Step.Focus is { } f && f.Job == op.Job && f.Index == op.Index;
+                    <span class="op @(scheduled ? "done" : null) @(focus ? "focus" : null)" title="@($"{JobShopSolver.Label(op.Job, op.Index)}: {Instance.Machines[op.Machine]} for {op.Duration}")">@Instance.Machines[op.Machine] <b>@op.Duration</b></span>
+                }
+            </span>
+            <span class="job-end">
+                @if (done)
+                {
+                    @if (job.Due is { } due && finish > due)
+                    {
+                        <span class="status-bad">ends @finish, @(finish - due) late</span>
+                    }
+                    else
+                    {
+                        <span>ends @finish</span>
+                    }
+                }
+                else if (job.Due is { } due)
+                {
+                    <span class="muted">due @due</span>
+                }
+            </span>
+        </li>
+    }
+</ul>
+
+@code {
+    [Parameter, EditorRequired] public JobShopInstance Instance { get; set; } = default!;
+    [Parameter, EditorRequired] public JobShopStep Step { get; set; } = default!;
+
+    private HashSet<(int, int)> _done = [];
+
+    protected override void OnParametersSet() => _done = Step.Scheduled.Select(o => (o.Job, o.Index)).ToHashSet();
+}

@@ -1,0 +1,51 @@
+@using Halgoworks.Core.Knapsack
+
+<ul class="items" aria-label="Items">
+    @foreach (var index in Step.Order)
+    {
+        var item = Instance.Items[index];
+        var state = Step.Items.Count > index ? Step.Items[index] : ItemState.Idle;
+        <li class="item @Css(state)" @key="item.Id">
+            <span class="item-icon" aria-hidden="true">@item.Icon</span>
+            <span class="item-name">@item.Name</span>
+            <span class="item-meta">@item.Weight kg, value @item.Value@(ShowDensity ? $", {Num.F2(item.Density)}/kg" : "")</span>
+            @if (state == ItemState.Taken)
+            {
+                <span class="item-badge">packed</span>
+            }
+            else if (state == ItemState.Skipped)
+            {
+                <span class="item-badge">left out</span>
+            }
+        </li>
+    }
+</ul>
+
+<div class="gauge">
+    <div class="gauge-head">
+        <span>Knapsack: <strong class="num">@Step.Load</strong> of @Instance.Capacity kg</span>
+        <span>Value <strong class="num">@Step.Total</strong>@(Step.Optimum is { } opt ? $" (best possible {opt})" : "")</span>
+    </div>
+    <div class="gauge-track" role="img" aria-label="@($"{Step.Load} of {Instance.Capacity} kg packed")">
+        @foreach (var index in Step.Order.Where(i => Step.Items.Count > i && Step.Items[i] == ItemState.Taken))
+        {
+            var item = Instance.Items[index];
+            var share = (double)item.Weight / Instance.Capacity;
+            <span class="gauge-seg" style="flex: 0 0 calc(@Palette.F(share * 100, "0.##")% - 2px)" title="@($"{item.Name}: {item.Weight} kg")">@(share >= 0.07 ? item.Icon : "")</span>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public KnapsackInstance Instance { get; set; } = default!;
+    [Parameter, EditorRequired] public KnapsackStep Step { get; set; } = default!;
+    [Parameter] public bool ShowDensity { get; set; }
+
+    private static string? Css(ItemState state) => state switch
+    {
+        ItemState.Focus => "focus",
+        ItemState.Taken => "taken",
+        ItemState.Skipped => "skipped",
+        _ => null,
+    };
+}

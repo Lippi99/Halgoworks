@@ -1,0 +1,189 @@
+@* Lines over an index axis, with a crosshair tooltip. Up to four series get direct end labels; a legend is always shown for two or more. *@
+
+@if (Series.Count >= 2)
+{
+    <ul class="legend" style="margin-bottom: 10px;">
+        @foreach (var s in Series)
+        {
+            <li><span class="swatch line" style="background: @s.Color"></span>@s.Name</li>
+        }
+    </ul>
+}
+<div class="chart" @onmouseleave="() => _hover = -1">
+    <svg viewBox="0 0 @W @H" role="img" aria-label="@AriaLabel">
+        @foreach (var tick in _yTicks)
+        {
+            <g>
+                <line class="gridline" x1="@Left" x2="@Right" y1="@F(Y(tick))" y2="@F(Y(tick))" />
+                <text class="tick" x="@(Left - 8)" y="@F(Y(tick))" text-anchor="end" dominant-baseline="central">@YLabel(tick)</text>
+            </g>
+        }
+        <line class="axis" x1="@Left" x2="@Right" y1="@Bottom" y2="@Bottom" />
+        <g>
+            @foreach (var i in XTickIndices())
+            {
+                <g><text class="tick" x="@F(X(i))" y="@(Bottom + 18)" text-anchor="middle">@XLabels.ElementAtOrDefault(i)</text></g>
+            }
+            @if (XTitle is not null)
+            {
+                <g><text class="tick" x="@Right" y="@(Bottom + 34)" text-anchor="end">@XTitle</text></g>
+            }
+        </g>
+
+        @foreach (var r in Refs)
+        {
+            <g>
+                <line class="ref" x1="@Left" x2="@Right" y1="@F(Y(r.Value))" y2="@F(Y(r.Value))" />
+                <text class="ref-label" x="@(Left + 6)" y="@F(Y(r.Value) - 6)">@r.Label</text>
+            </g>
+        }
+
+        @if (Marker is { } marker && marker >= 0 && marker < Count)
+        {
+            <line x1="@F(X(marker))" x2="@F(X(marker))" y1="@Top" y2="@Bottom" stroke="@Palette.Signal" stroke-width="1.5" />
+        }
+
+        @foreach (var s in Series)
+        {
+            <path d="@PathFor(s)" fill="none" stroke="@s.Color" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+            @if (LastIndex(s) is { } last)
+            {
+                <circle cx="@F(X(last))" cy="@F(Y(s.Values[last]!.Value))" r="4" fill="@s.Color" stroke="@Palette.Ink1" stroke-width="2" />
+                @if (Series.Count <= 4 && EndLabels)
+                {
+                    <g><text class="label" x="@F(X(last) + 10)" y="@F(Y(s.Values[last]!.Value))" dominant-baseline="central">@s.Name @YFormatValue(s.Values[last]!.Value)</text></g>
+                }
+            }
+        }
+
+        @if (_hover >= 0)
+        {
+            <line x1="@F(X(_hover))" x2="@F(X(_hover))" y1="@Top" y2="@Bottom" stroke="@Palette.Text3" stroke-width="1" />
+            @foreach (var s in Series)
+            {
+                if (s.Values.ElementAtOrDefault(_hover) is { } v)
+                {
+                    <circle cx="@F(X(_hover))" cy="@F(Y(v))" r="4" fill="@s.Color" stroke="@Palette.Ink1" stroke-width="2" />
+                }
+            }
+        }
+
+        @for (var i = 0; i < Count; i++)
+        {
+            var index = i;
+            var half = Count <= 1 ? (Right - Left) / 2.0 : (Right - Left) / (2.0 * (Count - 1));
+            <rect class="hit" x="@F(X(i) - half)" y="@Top" width="@F(half * 2)" height="@(Bottom - Top)" @onmouseenter="() => _hover = index" />
+        }
+    </svg>
+
+    @if (_hover >= 0)
+    {
+        <div class="chart-tip" style="left: @Pct(X(_hover), W); top: @Pct(Top + 8, H)">
+            <strong>@(XTitle is null ? "" : XTitle + " ")@XLabels.ElementAtOrDefault(_hover)</strong>
+            @foreach (var s in Series)
+            {
+                if (s.Values.ElementAtOrDefault(_hover) is { } v)
+                {
+                    <div class="row"><span class="swatch line" style="background: @s.Color"></span>@s.Name: @YFormatValue(v)</div>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<LineSeries> Series { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<string> XLabels { get; set; } = [];
+    [Parameter] public IReadOnlyList<RefLine> Refs { get; set; } = [];
+    [Parameter] public string? XTitle { get; set; }
+    [Parameter] public string AriaLabel { get; set; } = "";
+    [Parameter] public double? YMin { get; set; }
+    [Parameter] public double? YMax { get; set; }
+
+    /// <summary>Formats y values in ticks and tooltips.</summary>
+    [Parameter] public Func<double, string>? YFormat { get; set; }
+
+    /// <summary>Formats y ticks only, when they need a different look (such as powers of ten).</summary>
+    [Parameter] public Func<double, string>? YTickFormat { get; set; }
+
+    /// <summary>Index to mark with an amber vertical line, such as the current step.</summary>
+    [Parameter] public int? Marker { get; set; }
+
+    [Parameter] public bool EndLabels { get; set; } = true;
+    [Parameter] public int Height { get; set; } = 280;
+
+    private const int W = 640;
+    private const int Top = 14;
+    private int H => Height;
+    private int Left => 56;
+    private int Right => W - (Series.Count <= 4 && EndLabels ? 120 : 16);
+    private int Bottom => H - 40;
+    private int Count => XLabels.Count;
+
+    private double _ymin;
+    private double _ymax;
+    private List<double> _yTicks = [];
+    private int _hover = -1;
+
+    protected override void OnParametersSet()
+    {
+        var values = Series.SelectMany(s => s.Values).Where(v => v is not null).Select(v => v!.Value)
+            .Concat(Refs.Select(r => r.Value)).DefaultIfEmpty(0).ToList();
+        var lo = YMin ?? values.Min();
+        var hi = YMax ?? values.Max();
+        if (hi - lo < 1e-9) hi = lo + 1;
+        _yTicks = Scale.NiceTicks(lo, hi, 4);
+        _ymin = Math.Min(lo, _yTicks[0]);
+        _ymax = Math.Max(hi, _yTicks[^1]);
+        if (_hover >= Count) _hover = -1;
+    }
+
+    private double X(int i) => Count <= 1 ? (Left + Right) / 2.0 : Left + (double)i / (Count - 1) * (Right - Left);
+
+    private double Y(double v) => Bottom - (v - _ymin) / (_ymax - _ymin) * (Bottom - Top);
+
+    private string YLabel(double v) => YTickFormat?.Invoke(v) ?? YFormatValue(v);
+
+    private string YFormatValue(double v) => YFormat?.Invoke(v) ?? Palette.F(v);
+
+    private static string F(double v) => Palette.F(v, "0.##");
+
+    private static string Pct(double v, double total) => Palette.F(100 * v / total, "0.##") + "%";
+
+    private static int? LastIndex(LineSeries s)
+    {
+        for (var i = s.Values.Count - 1; i >= 0; i--)
+            if (s.Values[i] is not null) return i;
+        return null;
+    }
+
+    private IEnumerable<int> XTickIndices()
+    {
+        if (Count == 0) yield break;
+        var step = Math.Max(1, (int)Math.Ceiling(Count / 8.0));
+        for (var i = 0; i < Count; i += step) yield return i;
+    }
+
+    private string PathFor(LineSeries s)
+    {
+        var sb = new System.Text.StringBuilder();
+        double? prevY = null;
+        for (var i = 0; i < s.Values.Count; i++)
+        {
+            if (s.Values[i] is not { } v)
+            {
+                prevY = null;
+                continue;
+            }
+
+            var x = X(i);
+            var y = Y(v);
+            if (prevY is null) sb.Append($"M{F(x)} {F(y)}");
+            else if (s.Step) sb.Append($"H{F(x)}V{F(y)}");
+            else sb.Append($"L{F(x)} {F(y)}");
+            prevY = y;
+        }
+
+        return sb.ToString();
+    }
+}

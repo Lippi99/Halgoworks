@@ -1,0 +1,248 @@
+@page "/knapsack"
+@using Halgoworks.Core.Knapsack
+@using Halgoworks.Components.Knapsack
+@implements IDisposable
+
+<PageTitle>Knapsack | Halgoworks</PageTitle>
+
+<div class="page">
+    <LabHeader Problem="Problems.Knapsack" />
+
+    <section class="lab" aria-label="Knapsack lab">
+        <div class="toolbar">
+            <div class="field">
+                <span>Algorithm</span>
+                <Segmented T="string" Options="Algorithms" Value="_algorithm" ValueChanged="SetAlgorithm" Label="Algorithm" />
+            </div>
+            <label class="field">
+                <span>Example</span>
+                <select value="@_preset" @onchange="SetPreset">
+                    <option value="camping">Camping trip</option>
+                    <option value="trap">Greedy trap</option>
+                    <option value="random">Random items</option>
+                </select>
+            </label>
+            @if (_preset == "random")
+            {
+                <label class="field">
+                    <span>Items <output>@_count</output></span>
+                    <input type="range" min="3" max="10" value="@_count" style="--pct: @Pct(_count, 3, 10)" @onchange="e => SetNumber(e, v => _count = v)" />
+                </label>
+                <label class="field">
+                    <span>Capacity <output>@_capacity kg</output></span>
+                    <input type="range" min="5" max="25" value="@_capacity" style="--pct: @Pct(_capacity, 5, 25)" @onchange="e => SetNumber(e, v => _capacity = v)" />
+                </label>
+                <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New items</button>
+            }
+            <span class="spacer"></span>
+            <div class="field">
+                <span>View</span>
+                <Segmented T="bool" Options="Views" Value="_view3d" ValueChanged="v => _view3d = v" Label="View" />
+            </div>
+        </div>
+
+        <div class="lab-body">
+            <div class="stage">
+                <div class="stage-head">
+                    @if (IsDp)
+                    {
+                        <ul class="legend">
+                            <li><span class="swatch" style="background: linear-gradient(90deg, @Palette.Ramp[1], @Palette.Ramp[^1])"></span>Best value for that capacity (brighter is higher)</li>
+                            <li><span class="swatch ring"></span>Cell being decided</li>
+                        </ul>
+                    }
+                    else
+                    {
+                        <ul class="legend">
+                            <li><span class="swatch" style="background: @Palette.Series[0]"></span>Packed</li>
+                            <li><span class="swatch" style="background: @Palette.Muted"></span>Not packed (yet)</li>
+                            <li><span class="swatch ring"></span>Being decided</li>
+                        </ul>
+                    }
+                </div>
+                <div class="stage-body">
+                    @if (IsDp && _view3d)
+                    {
+                        <Scene3D Kind="knapsack" State="SceneState" Version="_version * 100000 + _player.Index" Label="The dynamic programming table as a 3D skyline" />
+                    }
+                    else if (IsDp)
+                    {
+                        @if (Step is { SkipValue: { } skip, TakeValue: { } take, Cell: { } cell })
+                        {
+                            var item = _instance.Items[cell.Row - 1];
+                            <div class="decision" aria-label="Decision for this cell">
+                                <div class="@(Step.Took == true ? null : "win")">Skip <strong>@skip</strong><span class="muted">cell above</span></div>
+                                <div class="@(Step.Took == true ? "win" : null)">Take <strong>@take</strong><span class="muted">@item.Value + best for capacity @(cell.Col - item.Weight)</span></div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="decision placeholder" aria-hidden="true"><div>Skip <strong>0</strong></div></div>
+                        }
+                        <KnapsackTable Instance="_instance" Step="Step" MaxValue="_maxValue" />
+                        <KnapsackItems Instance="_instance" Step="Step" />
+                    }
+                    else
+                    {
+                        <KnapsackItems Instance="_instance" Step="Step" ShowDensity="true" />
+                        <DensityList Instance="_instance" Step="Step" />
+                    }
+                </div>
+            </div>
+            <StepPanel Step="Step" Algorithm="Info" Index="_player.Index" Count="_player.Count" />
+        </div>
+        <PlaybackBar Player="_player" Marks="_marks" />
+    </section>
+
+    <div class="results">
+        <section class="panel" aria-labelledby="kn-compare">
+            <h2 class="panel-title" id="kn-compare">Exact versus greedy on these items</h2>
+            <p class="panel-sub">Total value packed by each approach. Greedy rules are fast but can miss; dynamic programming always finds the best.</p>
+            <div class="panel-body">
+                <BarChart Data="_compare" AriaLabel="Value packed by each approach" />
+            </div>
+        </section>
+        <section class="panel" aria-labelledby="kn-numbers">
+            <h2 class="panel-title" id="kn-numbers">This example in numbers</h2>
+            <p class="panel-sub">@_instance.Name: @_instance.Items.Count items, capacity @_instance.Capacity kg.</p>
+            <div class="panel-body">
+                <dl class="figures">
+                    <div><dt>Best value</dt><dd>@_optimum.Value</dd></div>
+                    <div><dt>Weight used</dt><dd>@_optimum.Weight<small>of @_instance.Capacity kg</small></dd></div>
+                    <div><dt>Table cells</dt><dd>@((_instance.Items.Count + 1) * (_instance.Capacity + 1))</dd></div>
+                    <div><dt>Possible subsets</dt><dd>@(1 << _instance.Items.Count)</dd></div>
+                </dl>
+            </div>
+        </section>
+    </div>
+
+    <KnapsackArticle Instance="_instance" Version="_version" />
+</div>
+
+@code {
+    private static readonly IReadOnlyList<SegOption<string>> Algorithms =
+    [
+        new("dp", "Dynamic programming"),
+        new("greedy", "Greedy"),
+    ];
+
+    private IReadOnlyList<SegOption<bool>> Views =>
+    [
+        new(false, "2D"),
+        new(true, "3D", !IsDp, IsDp ? null : "The 3D view shows the dynamic programming table"),
+    ];
+
+    private readonly Player _player = new();
+    private string _algorithm = "dp";
+    private string _preset = "camping";
+    private int _count = 7;
+    private int _capacity = 15;
+    private int _seed = 7;
+    private bool _view3d;
+    private int _version;
+
+    private KnapsackInstance _instance = KnapsackInstances.Camping();
+    private IReadOnlyList<KnapsackStep> _steps = [];
+    private IReadOnlyList<int> _marks = [];
+    private IReadOnlyList<BarDatum> _compare = [];
+    private KnapsackResult _optimum = new(0, 0, []);
+    private int _maxValue;
+
+    private bool IsDp => _algorithm == "dp";
+    private KnapsackStep Step => _steps[Math.Min(_player.Index, _steps.Count - 1)];
+    private AlgorithmInfo Info => IsDp ? KnapsackSolver.DynamicProgramming : KnapsackSolver.Greedy;
+
+    protected override void OnInitialized()
+    {
+        _player.Changed += OnPlayerChanged;
+        Rebuild(newInstance: true);
+    }
+
+    private void OnPlayerChanged() => InvokeAsync(StateHasChanged);
+
+    private void Rebuild(bool newInstance)
+    {
+        if (newInstance)
+        {
+            _instance = _preset switch
+            {
+                "trap" => KnapsackInstances.GreedyTrap(),
+                "random" => KnapsackInstances.Random(_count, _capacity, _seed),
+                _ => KnapsackInstances.Camping(),
+            };
+            _optimum = KnapsackSolver.Solve(_instance);
+        }
+
+        _steps = KnapsackSolver.Trace(_instance, _algorithm);
+        _marks = Enumerable.Range(1, _steps.Count - 1).Where(i => _steps[i].Phase != _steps[i - 1].Phase).ToList();
+        _maxValue = _optimum.Value;
+        _compare =
+        [
+            new("Dynamic programming", _optimum.Value, $"{_optimum.Value}", IsDp, "Optimal"),
+            Greedy("Greedy by value per kg", GreedyOrder.Density, !IsDp),
+            Greedy("Greedy by value", GreedyOrder.Value, false),
+            Greedy("Greedy by lightest", GreedyOrder.Lightest, false),
+        ];
+        _version++;
+        _player.Load(_steps.Count);
+    }
+
+    private BarDatum Greedy(string label, GreedyOrder order, bool highlight)
+    {
+        var result = KnapsackSolver.SolveGreedy(_instance, order);
+        var gap = _optimum.Value - result.Value;
+        return new BarDatum(label, result.Value, $"{result.Value}", highlight, gap == 0 ? "Matches the optimum here" : $"{gap} below the optimum");
+    }
+
+    private void SetAlgorithm(string algorithm)
+    {
+        _algorithm = algorithm;
+        if (!IsDp) _view3d = false;
+        Rebuild(newInstance: false);
+    }
+
+    private void SetPreset(ChangeEventArgs e)
+    {
+        _preset = e.Value?.ToString() ?? "camping";
+        Rebuild(newInstance: true);
+    }
+
+    private void SetNumber(ChangeEventArgs e, Action<int> set)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var value)) return;
+        set(value);
+        Rebuild(newInstance: true);
+    }
+
+    private void Reroll()
+    {
+        _seed = Random.Shared.Next(1, 100_000);
+        Rebuild(newInstance: true);
+    }
+
+    private static string Pct(int value, int min, int max) => Palette.F(100.0 * (value - min) / (max - min), "0.#") + "%";
+
+    private object SceneState()
+    {
+        var step = Step;
+        static int[]? Cell(GridCell? c) => c is { } x ? [x.Row, x.Col] : null;
+        return new
+        {
+            table = step.Table,
+            max = _maxValue,
+            cell = Cell(step.Cell),
+            skip = Cell(step.SkipFrom),
+            take = Cell(step.TakeFrom),
+            took = step.Took == true,
+            batch = step.Batch.Select(b => new[] { b.Row, b.Col }),
+            path = step.Path.Select(p => new[] { p.Row, p.Col }),
+            rows = _instance.Items.Select(i => $"{i.Icon} {i.Name}").Prepend("No items"),
+        };
+    }
+
+    public void Dispose()
+    {
+        _player.Changed -= OnPlayerChanged;
+        _player.Dispose();
+    }
+}

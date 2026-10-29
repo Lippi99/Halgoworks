@@ -1,0 +1,104 @@
+@* Horizontal bars, one series. The highlighted bar wears slot 1; the rest stay muted for emphasis. *@
+
+<div class="chart" @onmouseleave="() => _hover = -1">
+    <svg viewBox="0 0 @W @Height" role="img" aria-label="@AriaLabel">
+        @foreach (var tick in _ticks)
+        {
+            <g>
+                <line class="gridline" x1="@F(X(tick))" x2="@F(X(tick))" y1="@Top" y2="@Bottom" />
+                <text class="tick" x="@F(X(tick))" y="@F(Bottom + 18)" text-anchor="middle">@Format(tick)</text>
+            </g>
+        }
+        <line class="axis" x1="@F(X(_min))" x2="@F(X(_min))" y1="@Top" y2="@Bottom" />
+
+        @for (var i = 0; i < Data.Count; i++)
+        {
+            var index = i;
+            var d = Data[i];
+            var mid = Top + i * RowH + RowH / 2.0;
+            var x0 = X(_min);
+            var width = Math.Max(0, X(d.Value) - x0);
+            <g @onmouseenter="() => _hover = index">
+                <rect class="hit" x="0" y="@F(mid - RowH / 2.0)" width="@W" height="@RowH" />
+                <text class="label" x="@(LabelW - 12)" y="@F(mid)" text-anchor="end" dominant-baseline="central">@d.Label</text>
+                <path d="@BarPath(x0, mid - BarH / 2.0, width, BarH)" fill="@(d.Highlight ? Palette.Series[0] : Palette.Muted)" />
+                <text class="value" x="@F(x0 + width + 8)" y="@F(mid)" dominant-baseline="central">@d.Display</text>
+            </g>
+        }
+
+        @{
+            var placed = new List<double>();
+        }
+        @foreach (var group in Refs.GroupBy(r => r.Value).OrderBy(g => g.Key))
+        {
+            var x = X(group.Key);
+            var row = placed.Count(p => Math.Abs(p - x) < 120) % 2;
+            placed.Add(x);
+            <g>
+                <line class="ref" x1="@F(x)" x2="@F(x)" y1="@F(Top - 4)" y2="@Bottom" />
+                <text class="ref-label" x="@F(x)" y="@F(Top - 10 - row * 15)" text-anchor="middle">@string.Join(" = ", group.Select(r => r.Label)) @Format(group.Key)</text>
+            </g>
+        }
+    </svg>
+
+    @if (_hover >= 0 && _hover < Data.Count)
+    {
+        var d = Data[_hover];
+        var mid = Top + _hover * RowH + RowH / 2.0;
+        <div class="chart-tip" style="left: @Pct(Math.Max(X(d.Value), LabelW + 60), W); top: @Pct(mid - BarH / 2.0, Height)">
+            <strong>@d.Label</strong>
+            <div>@d.Display</div>
+            @if (d.Note is not null)
+            {
+                <div>@d.Note</div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<BarDatum> Data { get; set; } = [];
+    [Parameter] public IReadOnlyList<RefLine> Refs { get; set; } = [];
+    [Parameter] public double? Min { get; set; }
+    [Parameter] public string AriaLabel { get; set; } = "";
+    [Parameter] public Func<double, string>? TickFormat { get; set; }
+
+    private const int W = 640;
+    private const int LabelW = 176;
+    private const int ValueW = 70;
+    private const int RowH = 34;
+    private const int BarH = 20;
+    private int Top => Refs.Count > 0 ? 44 : 12;
+    private int Bottom => Top + Data.Count * RowH;
+    private int Height => Bottom + 28;
+
+    private double _min;
+    private double _max;
+    private List<double> _ticks = [];
+    private int _hover = -1;
+
+    protected override void OnParametersSet()
+    {
+        var values = Data.Select(d => d.Value).Concat(Refs.Select(r => r.Value)).DefaultIfEmpty(1).ToList();
+        _min = Min ?? 0;
+        var top = Math.Max(values.Max(), _min + 1);
+        _ticks = Scale.NiceTicks(_min, top, 4);
+        _max = Math.Max(_ticks[^1], top);
+    }
+
+    private double X(double v) => LabelW + (v - _min) / (_max - _min) * (W - LabelW - ValueW);
+
+    private string Format(double v) => TickFormat?.Invoke(v) ?? Palette.F(v);
+
+    private static string F(double v) => Palette.F(v, "0.##");
+
+    private static string Pct(double v, double total) => Palette.F(100 * v / total, "0.##") + "%";
+
+    // Rounded data end, square at the baseline.
+    private static string BarPath(double x, double y, double w, double h)
+    {
+        if (w <= 0) return "";
+        var r = Math.Min(4, w);
+        return $"M{F(x)} {F(y)}h{F(w - r)}a{F(r)} {F(r)} 0 0 1 {F(r)} {F(r)}v{F(h - 2 * r)}a{F(r)} {F(r)} 0 0 1 {F(-r)} {F(r)}h{F(-(w - r))}z";
+    }
+}

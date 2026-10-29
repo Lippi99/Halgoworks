@@ -1,0 +1,231 @@
+@page "/bin-packing"
+@using Halgoworks.Core.BinPacking
+@using Halgoworks.Components.BinPacking
+@implements IDisposable
+
+<PageTitle>Bin packing | Halgoworks</PageTitle>
+
+<div class="page">
+    <LabHeader Problem="Problems.BinPacking" />
+
+    <section class="lab" aria-label="Bin packing lab">
+        <div class="toolbar">
+            <div class="field">
+                <span>Algorithm</span>
+                <Segmented T="BinRule" Options="RuleOptions" Value="_rule" ValueChanged="SetRule" Label="Algorithm" />
+            </div>
+            <label class="field">
+                <span>Example</span>
+                <select value="@_preset" @onchange="SetPreset">
+                    <option value="random">Random items</option>
+                    <option value="small">Small items first</option>
+                    <option value="cloud">Cloud servers (GB)</option>
+                </select>
+            </label>
+            @if (_preset == "random")
+            {
+                <label class="field">
+                    <span>Items <output>@_count</output></span>
+                    <input type="range" min="6" max="20" value="@_count" style="--pct: @Pct(_count, 6, 20)" @onchange="e => SetNumber(e, v => _count = v)" />
+                </label>
+                <label class="field">
+                    <span>Bin size <output>@_capacity</output></span>
+                    <input type="range" min="6" max="20" value="@_capacity" style="--pct: @Pct(_capacity, 6, 20)" @onchange="e => SetNumber(e, v => _capacity = v)" />
+                </label>
+                <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New items</button>
+            }
+            <span class="spacer"></span>
+            <div class="field">
+                <span>View</span>
+                <Segmented T="bool" Options="Views" Value="_view3d" ValueChanged="v => _view3d = v" Label="View" />
+            </div>
+        </div>
+
+        <div class="lab-body">
+            <div class="stage">
+                <div class="stage-head">
+                    <ul class="legend">
+                        <li><span class="swatch" style="background: @Palette.SizeClass[0]"></span>Small: up to a third of a bin</li>
+                        <li><span class="swatch" style="background: @Palette.SizeClass[1]"></span>Medium: up to half</li>
+                        <li><span class="swatch" style="background: @Palette.SizeClass[2]"></span>Large: more than half</li>
+                        <li><span style="color: @Palette.GoodText; font-weight: 700">✓</span>fits</li>
+                        <li><span style="color: @Palette.BadText; font-weight: 700">✗</span>too full</li>
+                        <li><span class="swatch ring"></span>chosen</li>
+                    </ul>
+                </div>
+                <div class="stage-body">
+                    @if (_view3d)
+                    {
+                        <Scene3D Kind="bins" State="SceneState" Version="_version * 100000 + _player.Index" Label="Bins as glass containers with items stacked inside" />
+                    }
+                    else
+                    {
+                        <BinsView Instance="_instance" Step="Step" MaxSlots="_maxSlots" />
+                    }
+                </div>
+            </div>
+            <StepPanel Step="Step" Algorithm="BinPackingSolver.Info(_rule)" Index="_player.Index" Count="_player.Count" />
+        </div>
+        <PlaybackBar Player="_player" Marks="_marks" />
+    </section>
+
+    <div class="results">
+        <section class="panel" aria-labelledby="bp-compare">
+            <h2 class="panel-title" id="bp-compare">All six rules on these items</h2>
+            <p class="panel-sub">Bins each rule needs. No packing can beat the lower bound; the optimum comes from an exhaustive search.</p>
+            <div class="panel-body">
+                <BarChart Data="_compare" Refs="_refs" AriaLabel="Bins used by each rule" Min="0" />
+            </div>
+        </section>
+        <section class="panel" aria-labelledby="bp-numbers">
+            <h2 class="panel-title" id="bp-numbers">This example in numbers</h2>
+            <p class="panel-sub">@_instance.Name: @_instance.Items.Count items totalling @_instance.TotalSize@Unit, bins of @_instance.Capacity@Unit.</p>
+            <div class="panel-body">
+                <dl class="figures">
+                    <div><dt>@BinPackingSolver.ShortName(_rule)</dt><dd>@_final.Bins.Count<small>bins</small></dd></div>
+                    <div><dt>Lower bound</dt><dd>@_instance.LowerBound<small>bins</small></dd></div>
+                    <div><dt>Optimum</dt><dd>@(_optimum?.ToString() ?? "?")<small>@(_optimum is null ? "search gave up" : "bins")</small></dd></div>
+                    <div><dt>Average fill</dt><dd>@Num.Pct((double)_instance.TotalSize / (_final.Bins.Count * _instance.Capacity))</dd></div>
+                </dl>
+            </div>
+        </section>
+    </div>
+
+    <BinPackingArticle />
+</div>
+
+@code {
+    private static readonly IReadOnlyList<SegOption<BinRule>> RuleOptions =
+    [
+        new(BinRule.NextFit, "Next fit"),
+        new(BinRule.FirstFit, "First fit"),
+        new(BinRule.BestFit, "Best fit"),
+        new(BinRule.WorstFit, "Worst fit"),
+        new(BinRule.FirstFitDecreasing, "FFD", Hint: "First fit decreasing"),
+        new(BinRule.BestFitDecreasing, "BFD", Hint: "Best fit decreasing"),
+    ];
+
+    private static readonly IReadOnlyList<SegOption<bool>> Views = [new(false, "2D"), new(true, "3D")];
+
+    private readonly Player _player = new();
+    private BinRule _rule = BinRule.FirstFit;
+    private string _preset = "random";
+    private int _count = 14;
+    private int _capacity = 10;
+    private int _seed = 12;
+    private bool _view3d;
+    private int _version;
+
+    private BinPackingInstance _instance = BinPackingInstances.Random(14, 10, 12);
+    private IReadOnlyList<BinPackingStep> _steps = [];
+    private IReadOnlyList<int> _marks = [];
+    private IReadOnlyList<BarDatum> _compare = [];
+    private IReadOnlyList<RefLine> _refs = [];
+    private int? _optimum;
+    private Dictionary<int, int> _size = [];
+    private int _maxSlots;
+
+    private BinPackingStep Step => _steps[Math.Min(_player.Index, _steps.Count - 1)];
+    private BinPackingStep _final => _steps[^1];
+    private string Unit => _instance.Unit.Length == 0 ? "" : $" {_instance.Unit}";
+
+    protected override void OnInitialized()
+    {
+        _player.Changed += OnPlayerChanged;
+        Rebuild(newInstance: true);
+    }
+
+    private void OnPlayerChanged() => InvokeAsync(StateHasChanged);
+
+    private void Rebuild(bool newInstance)
+    {
+        if (newInstance)
+        {
+            _instance = _preset switch
+            {
+                "small" => BinPackingInstances.SmallFirst(),
+                "cloud" => BinPackingInstances.CloudServers(),
+                _ => BinPackingInstances.Random(_count, _capacity, _seed),
+            };
+            _size = _instance.Items.ToDictionary(i => i.Id, i => i.Size);
+            _optimum = BinPackingSolver.Optimal(_instance);
+            _refs = _optimum == _instance.LowerBound
+                ? [new RefLine("Lower bound = optimum", _instance.LowerBound)]
+                : _optimum is { } opt
+                    ? [new RefLine("Lower bound", _instance.LowerBound), new RefLine("Optimum", opt)]
+                    : [new RefLine("Lower bound", _instance.LowerBound)];
+        }
+
+        _steps = BinPackingSolver.Trace(_instance, _rule);
+        _maxSlots = _steps.Max(s => s.Bins.Count + (s.Target == s.Bins.Count ? 1 : 0));
+        _marks = Enumerable.Range(1, _steps.Count - 1).Where(i => _steps[i].Phase != _steps[i - 1].Phase).ToList();
+        _compare = BinPackingSolver.Rules
+            .Select(rule =>
+            {
+                var bins = BinPackingSolver.Solve(_instance, rule).Count;
+                var note = _optimum is { } opt ? bins == opt ? "Optimal" : $"{bins - opt} more than optimal" : null;
+                return new BarDatum(BinPackingSolver.ShortName(rule), bins, $"{bins}", rule == _rule, note);
+            })
+            .ToList();
+        _version++;
+        _player.Load(_steps.Count);
+    }
+
+    private void SetRule(BinRule rule)
+    {
+        _rule = rule;
+        Rebuild(newInstance: false);
+    }
+
+    private void SetPreset(ChangeEventArgs e)
+    {
+        _preset = e.Value?.ToString() ?? "random";
+        Rebuild(newInstance: true);
+    }
+
+    private void SetNumber(ChangeEventArgs e, Action<int> set)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var value)) return;
+        set(value);
+        Rebuild(newInstance: true);
+    }
+
+    private void Reroll()
+    {
+        _seed = Random.Shared.Next(1, 100_000);
+        Rebuild(newInstance: true);
+    }
+
+    private static string Pct(int value, int min, int max) => Palette.F(100.0 * (value - min) / (max - min), "0.#") + "%";
+
+    private int Cls(int size) => size * 2 > _instance.Capacity ? 2 : size * 3 > _instance.Capacity ? 1 : 0;
+
+    private object Entry(int id) => new { id, size = _size[id], cls = Cls(_size[id]) };
+
+    private object SceneState()
+    {
+        var step = Step;
+        return new
+        {
+            capacity = _instance.Capacity,
+            bins = step.Bins.Select(b => b.Select(Entry)),
+            item = step.Item is { } item ? Entry(item) : null,
+            target = step.Target,
+            probes = step.Probes.Select(p => p switch
+            {
+                Probe.TooFull => "tooFull",
+                Probe.Fits => "fits",
+                Probe.Chosen => "chosen",
+                _ => "none",
+            }),
+            placed = step.Placed,
+            closed = step.Closed,
+        };
+    }
+
+    public void Dispose()
+    {
+        _player.Changed -= OnPlayerChanged;
+        _player.Dispose();
+    }
+}

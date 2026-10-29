@@ -1,0 +1,253 @@
+@page "/job-shop"
+@using Halgoworks.Core.JobShop
+@using Halgoworks.Components.JobShop
+@implements IDisposable
+
+<PageTitle>Job-shop scheduling | Halgoworks</PageTitle>
+
+<div class="page">
+    <LabHeader Problem="Problems.JobShop" />
+
+    <section class="lab" aria-label="Job-shop scheduling lab">
+        <div class="toolbar">
+            <div class="field">
+                <span>Algorithm</span>
+                <Segmented T="string" Options="Modes" Value="_mode" ValueChanged="SetMode" Label="Algorithm" />
+            </div>
+            @if (_mode == "dispatch")
+            {
+                <label class="field">
+                    <span>Priority rule</span>
+                    <select value="@_rule" @onchange="SetRule">
+                        @foreach (var rule in JobShopSolver.Rules)
+                        {
+                            <option value="@rule" disabled="@(rule == DispatchRule.Edd && !_instance.HasDueDates)">@JobShopSolver.Short(rule): @JobShopSolver.Describe(rule)</option>
+                        }
+                    </select>
+                </label>
+            }
+            <label class="field">
+                <span>Example</span>
+                <select value="@_preset" @onchange="SetPreset">
+                    <option value="small">3 jobs on 3 machines</option>
+                    <option value="ft06">Fisher &amp; Thompson ft06 (6 × 6)</option>
+                    <option value="random">Random workshop with due dates</option>
+                </select>
+            </label>
+            @if (_preset == "random")
+            {
+                <label class="field">
+                    <span>Jobs <output>@_jobs</output></span>
+                    <input type="range" min="3" max="8" value="@_jobs" style="--pct: @Pct(_jobs, 3, 8)" @onchange="e => SetNumber(e, v => _jobs = v)" />
+                </label>
+                <label class="field">
+                    <span>Machines <output>@_machines</output></span>
+                    <input type="range" min="2" max="6" value="@_machines" style="--pct: @Pct(_machines, 2, 6)" @onchange="e => SetNumber(e, v => _machines = v)" />
+                </label>
+                <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New jobs</button>
+            }
+            <span class="spacer"></span>
+            <div class="field">
+                <span>Rows</span>
+                <Segmented T="bool" Options="RowOptions" Value="_byJob" ValueChanged="v => _byJob = v" Label="Gantt rows" />
+            </div>
+        </div>
+
+        <div class="lab-body">
+            <div class="stage">
+                <div class="stage-head">
+                    <ul class="legend">
+                        <li><span class="swatch" style="background: @Palette.Series[0]"></span>Scheduled operation (color = job)</li>
+                        <li><span class="swatch" style="border: 1.5px dashed @Palette.Text2; background: transparent"></span>Waiting, at its earliest start</li>
+                        <li><span class="swatch ring"></span>@(_mode == "tabu" ? "Critical path and swapped pair" : "Competing for the machine, or critical path")</li>
+                    </ul>
+                </div>
+                <div class="stage-body">
+                    <GanttChart Instance="_instance" Step="Step" ByJob="_byJob" Horizon="_horizon" />
+                    <JobsLegend Instance="_instance" Step="Step" />
+                </div>
+            </div>
+            <StepPanel Step="Step" Algorithm="Info" Index="_player.Index" Count="_player.Count" />
+        </div>
+        <PlaybackBar Player="_player" Marks="_marks" />
+    </section>
+
+    <div class="results">
+        @if (_mode == "tabu")
+        {
+            <section class="panel" aria-labelledby="js-converge">
+                <h2 class="panel-title" id="js-converge">Makespan, iteration by iteration</h2>
+                <p class="panel-sub">Tabu search accepts worse schedules to escape local optima, so the current makespan wanders while the best one only goes down.</p>
+                <div class="panel-body">
+                    <LineChart Series="_convergence" XLabels="_iterations" Refs="_convergenceRefs" Marker="@Math.Min(_player.Index, _iterations.Count - 1)"
+                               XTitle="Iteration" AriaLabel="Makespan per tabu search iteration" />
+                </div>
+            </section>
+        }
+        <section class="panel" aria-labelledby="js-compare">
+            <h2 class="panel-title" id="js-compare">Every method on this example</h2>
+            <p class="panel-sub">Makespan of each dispatch rule and of tabu search. Lower is better.</p>
+            <div class="panel-body">
+                <BarChart Data="_compare" Refs="_refs" AriaLabel="Makespan by method" Min="0" />
+            </div>
+        </section>
+        @if (_mode == "dispatch")
+        {
+            <section class="panel" aria-labelledby="js-numbers">
+                <h2 class="panel-title" id="js-numbers">This example in numbers</h2>
+                <p class="panel-sub">@_instance.Name: @_instance.Jobs.Count jobs, @_instance.Machines.Count machines, @_instance.OperationCount operations.</p>
+                <div class="panel-body">
+                    <dl class="figures">
+                        <div><dt>Makespan (@JobShopSolver.Short(_rule))</dt><dd>@_steps[^1].Makespan</dd></div>
+                        <div><dt>Lower bound</dt><dd>@_instance.LowerBound</dd></div>
+                        <div><dt>Proven optimum</dt><dd>@(_instance.Optimum?.ToString() ?? "unknown")</dd></div>
+                        <div><dt>Machine orders possible</dt><dd>@Orders</dd></div>
+                    </dl>
+                </div>
+            </section>
+        }
+    </div>
+
+    <JobShopArticle />
+</div>
+
+@code {
+    private static readonly IReadOnlyList<SegOption<string>> Modes =
+    [
+        new("dispatch", "Dispatching (Giffler–Thompson)"),
+        new("tabu", "Tabu search"),
+    ];
+
+    private static readonly IReadOnlyList<SegOption<bool>> RowOptions = [new(false, "Machines"), new(true, "Jobs")];
+
+    private readonly Player _player = new();
+    private string _mode = "dispatch";
+    private DispatchRule _rule = DispatchRule.Mwkr;
+    private string _preset = "ft06";
+    private int _jobs = 5;
+    private int _machines = 4;
+    private int _seed = 3;
+    private bool _byJob;
+
+    private JobShopInstance _instance = JobShopInstances.Ft06();
+    private IReadOnlyList<JobShopStep> _steps = [];
+    private IReadOnlyList<JobShopStep> _tabu = [];
+    private IReadOnlyList<int> _marks = [];
+    private IReadOnlyList<BarDatum> _compare = [];
+    private IReadOnlyList<RefLine> _refs = [];
+    private IReadOnlyList<LineSeries> _convergence = [];
+    private IReadOnlyList<string> _iterations = [];
+    private IReadOnlyList<RefLine> _convergenceRefs = [];
+    private int _horizon = 10;
+
+    private JobShopStep Step => _steps[Math.Min(_player.Index, _steps.Count - 1)];
+    private AlgorithmInfo Info => _mode == "tabu" ? JobShopSolver.TabuInfo : JobShopSolver.GifflerThompsonInfo(_rule);
+
+    // (n!)^m machine orders, shown compactly.
+    private string Orders
+    {
+        get
+        {
+            var log = 0.0;
+            for (var m = 0; m < _instance.Machines.Count; m++)
+            {
+                var onMachine = _instance.Jobs.Sum(j => j.Ops.Count(o => o.Machine == m));
+                for (var k = 2; k <= onMachine; k++) log += Math.Log10(k);
+            }
+
+            return log < 6 ? Palette.F(Math.Round(Math.Pow(10, log)), "#,0") : $"{Palette.F(Math.Pow(10, log - Math.Floor(log)), "0.0")} × {Scale.Power((int)Math.Floor(log))}";
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        _player.Changed += OnPlayerChanged;
+        Rebuild(newInstance: true);
+    }
+
+    private void OnPlayerChanged() => InvokeAsync(StateHasChanged);
+
+    private void Rebuild(bool newInstance)
+    {
+        if (newInstance)
+        {
+            _instance = _preset switch
+            {
+                "small" => JobShopInstances.Small(),
+                "random" => JobShopInstances.Random(_jobs, _machines, _seed),
+                _ => JobShopInstances.Ft06(),
+            };
+            if (_rule == DispatchRule.Edd && !_instance.HasDueDates) _rule = DispatchRule.Mwkr;
+            _tabu = JobShopSolver.TraceTabu(_instance);
+            var lb = _instance.LowerBound;
+            _refs = _instance.Optimum == lb || _instance.Optimum is null
+                ? [new RefLine(_instance.Optimum == lb ? "Lower bound = optimum" : "Lower bound", lb)]
+                : [new RefLine("Lower bound", lb), new RefLine("Optimum", _instance.Optimum.Value)];
+            _iterations = Enumerable.Range(0, _tabu.Count).Select(i => i == _tabu.Count - 1 ? "end" : i.ToString()).ToList();
+            var history = _tabu[^1].History;
+            var best = _tabu[^1].BestHistory;
+            _convergence =
+            [
+                new LineSeries("Current", _tabu.Select((_, i) => (double?)history[Math.Min(i, history.Count - 1)]).ToList(), Palette.Series[1], true),
+                new LineSeries("Best so far", _tabu.Select((_, i) => (double?)best[Math.Min(i, best.Count - 1)]).ToList(), Palette.Series[0], true),
+            ];
+            _convergenceRefs = _instance.Optimum is { } opt ? [new RefLine($"Optimum {opt}", opt)] : [new RefLine($"Lower bound {lb}", lb)];
+        }
+
+        _steps = _mode == "tabu" ? _tabu : JobShopSolver.TraceDispatch(_instance, _rule);
+        _marks = Enumerable.Range(1, _steps.Count - 1).Where(i => _steps[i].Phase != _steps[i - 1].Phase).ToList();
+        _compare = JobShopSolver.Rules
+            .Where(r => r != DispatchRule.Edd || _instance.HasDueDates)
+            .Select(r =>
+            {
+                var makespan = JobShopSolver.Makespan(JobShopSolver.Solve(_instance, r));
+                return new BarDatum(JobShopSolver.Short(r), makespan, $"{makespan}", _mode == "dispatch" && r == _rule, JobShopSolver.Describe(r));
+            })
+            .Append(new BarDatum("Tabu search", _tabu[^1].Makespan, $"{_tabu[^1].Makespan}", _mode == "tabu", "Starts from MWKR, then improves"))
+            .ToList();
+        var latest = _steps.Max(s => Math.Max(s.Makespan, s.Candidates.Select(c => c.End).DefaultIfEmpty(0).Max()));
+        var dues = _instance.Jobs.Select(j => j.Due ?? 0).DefaultIfEmpty(0).Max();
+        _horizon = (int)Math.Ceiling(Math.Max(Math.Max(latest, dues), _instance.LowerBound) * 1.04) + 1;
+        _player.Load(_steps.Count);
+    }
+
+    private void SetMode(string mode)
+    {
+        _mode = mode;
+        Rebuild(newInstance: false);
+    }
+
+    private void SetRule(ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<DispatchRule>(e.Value?.ToString(), out var rule)) return;
+        _rule = rule;
+        Rebuild(newInstance: false);
+    }
+
+    private void SetPreset(ChangeEventArgs e)
+    {
+        _preset = e.Value?.ToString() ?? "ft06";
+        Rebuild(newInstance: true);
+    }
+
+    private void SetNumber(ChangeEventArgs e, Action<int> set)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var value)) return;
+        set(value);
+        Rebuild(newInstance: true);
+    }
+
+    private void Reroll()
+    {
+        _seed = Random.Shared.Next(1, 100_000);
+        Rebuild(newInstance: true);
+    }
+
+    private static string Pct(int value, int min, int max) => Palette.F(100.0 * (value - min) / (max - min), "0.#") + "%";
+
+    public void Dispose()
+    {
+        _player.Changed -= OnPlayerChanged;
+        _player.Dispose();
+    }
+}

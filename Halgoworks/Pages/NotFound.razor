@@ -1,0 +1,15 @@
+@page "/not-found"
+@layout MainLayout
+
+<PageTitle>Page not found | Halgoworks</PageTitle>
+
+<div class="page" style="padding-top: 96px; max-width: 760px;">
+    <h1 class="lab-title" tabindex="-1">This page doesn't exist</h1>
+    <p class="lab-lede">Pick one of the five problems instead:</p>
+    <ul class="prose" style="margin-top: 20px;">
+        @foreach (var problem in Problems.All)
+        {
+            <li><a href="@problem.Slug">@problem.Name</a></li>
+        }
+    </ul>
+</div>

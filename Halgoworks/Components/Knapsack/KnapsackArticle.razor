@@ -1,0 +1,141 @@
+@using Halgoworks.Core.Knapsack
+
+<ArticleLayout Sections="Sections" Path="knapsack" Version="Version">
+    <section id="problem">
+        <h2>The problem</h2>
+        <p>
+            You have a bag that holds at most <em>W</em> kilograms and a pile of items, each with a weight and a value.
+            Which items should go in so the total value is as high as possible without the bag going over its limit?
+            Every item is all or nothing: you can't pack half a tent.
+        </p>
+        <p>
+            Swap kilograms for dollars and it becomes budget allocation: projects with costs and expected returns, a fixed budget.
+            Swap them for cubic metres and it's cargo loading. Investment selection, ad-slot planning, choosing which features fit in a release:
+            whenever you pick a subset under one capacity limit, it's a knapsack in disguise. It also turns up inside bigger solvers,
+            for example in column generation for cutting-stock problems.
+        </p>
+    </section>
+
+    <section id="model">
+        <h2>Formal model</h2>
+        <p>Give each item <i>i</i> a decision variable <i>x<sub>i</sub></i>, which is 1 if the item is packed and 0 if not. The 0-1 knapsack problem is then:</p>
+        <div class="formula" role="math" aria-label="maximize the sum of v i x i subject to the sum of w i x i at most W, x i in 0 or 1">
+            <div class="row"><span>maximize</span><span>Σ<sub><i>i</i></sub> <i>v<sub>i</sub> x<sub>i</sub></i></span></div>
+            <div class="row"><span>subject to</span><span>Σ<sub><i>i</i></sub> <i>w<sub>i</sub> x<sub>i</sub></i> ≤ <i>W</i></span></div>
+            <div class="row"><span></span><span><i>x<sub>i</sub></i> ∈ {0, 1} for every item <i>i</i></span></div>
+        </div>
+        <p>
+            That's an <strong>integer linear program</strong> with a single constraint. Drop the requirement that <i>x<sub>i</sub></i> be 0 or 1 and
+            allow fractions, and the problem becomes easy: greedy by value per kilogram is then exactly optimal. The whole difficulty lives in that little ∈ {0, 1}.
+        </p>
+    </section>
+
+    <section id="hard">
+        <h2>Why it's hard</h2>
+        <p>
+            With <i>n</i> items there are 2<sup><i>n</i></sup> possible selections. 30 items give over a billion; 60 items give more than
+            a billion billion. Checking them all is hopeless, and no known algorithm avoids exponential time in the worst case: the decision version
+            ("can we reach value <i>V</i>?") is <strong>NP-complete</strong>, one of Richard Karp's 21 classic NP-complete problems from 1972.
+        </p>
+        <SubsetGrid Instance="Instance" />
+        <p>
+            And yet the dynamic program in this lab solves real instances quickly. The catch is in its running time, <i>O</i>(<i>n</i>·<i>W</i>):
+            it depends on the <em>value</em> of the capacity, not on the number of digits needed to write it down. Add one digit to <i>W</i>
+            and the table gets ten times wider. Algorithms like this are called <strong>pseudo-polynomial</strong>: fast when the numbers are small,
+            exponential in the size of the input when they're huge. That's why knapsack is called "weakly" NP-hard.
+        </p>
+    </section>
+
+    <section id="structures">
+        <h2>Data structures</h2>
+        <h3>The DP table</h3>
+        <p>
+            The core of the exact method is a two-dimensional array <code>dp[i][w]</code> with <i>n</i> + 1 rows and <i>W</i> + 1 columns.
+            Cell <code>dp[i][w]</code> answers a smaller question: what's the best value using only the first <i>i</i> items with capacity <i>w</i>?
+            Each cell depends on just two cells in the row above, so the table fills row by row in a fixed order, with no recursion and no repeated work.
+        </p>
+        <div class="formula" aria-label="recurrence">
+            <div class="row"><span>no fit</span><span>dp[<i>i</i>][<i>w</i>] = dp[<i>i</i>−1][<i>w</i>] &nbsp;when <i>w<sub>i</sub></i> &gt; <i>w</i></span></div>
+            <div class="row"><span>otherwise</span><span>dp[<i>i</i>][<i>w</i>] = max(dp[<i>i</i>−1][<i>w</i>], <i>v<sub>i</sub></i> + dp[<i>i</i>−1][<i>w</i> − <i>w<sub>i</sub></i>])</span></div>
+        </div>
+        <p>
+            Keeping the whole table costs <i>O</i>(<i>n</i>·<i>W</i>) memory but lets you walk back from the bottom-right cell to recover <em>which</em>
+            items were chosen: whenever a cell differs from the one above it, that row's item was packed. If you only need the best value,
+            one row of length <i>W</i> + 1 is enough: sweep it from right to left for each item, and memory drops to <i>O</i>(<i>W</i>).
+        </p>
+        <h3>A sorted array for greedy</h3>
+        <p>
+            The greedy heuristic needs nothing more than the items sorted by value per kilogram. Sorting dominates its cost at
+            <i>O</i>(<i>n</i> log <i>n</i>); the packing pass afterwards is a single loop.
+        </p>
+    </section>
+
+    <section id="algorithms">
+        <h2>The algorithms</h2>
+        <h3>Dynamic programming (exact)</h3>
+        <p>
+            The key observation is the <strong>principle of optimality</strong>: in the best packing for capacity <i>w</i>, either item <i>i</i> is left out,
+            and the rest is the best packing of the first <i>i</i> − 1 items for <i>w</i>, or it's in, and the rest is the best packing of the first <i>i</i> − 1 items
+            for <i>w</i> − <i>w<sub>i</sub></i>. Compare the two and keep the larger. Step through the lab and watch each cell make exactly that decision.
+        </p>
+        <h3>Greedy by value density</h3>
+        <p>
+            Rank items by value ÷ weight and pack each one that still fits. It's intuitive and instant, but it can be badly wrong.
+            In the greedy trap example, the statue has the best ratio, so greedy packs it first and then can't fit the painting and the vase,
+            which together are worth more. Greedy can be made safe with one small fix: return the better of the greedy packing and the single most
+            valuable item that fits. That simple variant is never worse than half the optimum.
+        </p>
+        <table class="compare-table">
+            <thead>
+                <tr><th>Approach</th><th>Time</th><th>Guarantee</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Brute force</td><td><i>O</i>(2<sup><i>n</i></sup>·<i>n</i>)</td><td>Optimal, but only for tiny <i>n</i></td></tr>
+                <tr><td>Dynamic programming</td><td><i>O</i>(<i>n</i>·<i>W</i>)</td><td>Optimal; slow when <i>W</i> is huge</td></tr>
+                <tr><td>Greedy by density</td><td><i>O</i>(<i>n</i> log <i>n</i>)</td><td>None; can be arbitrarily bad</td></tr>
+                <tr><td>Greedy or best single item</td><td><i>O</i>(<i>n</i> log <i>n</i>)</td><td>At least ½ of the optimum</td></tr>
+                <tr><td>FPTAS (value scaling)</td><td><i>O</i>(<i>n</i><sup>3</sup>/ε)</td><td>At least (1 − ε) of the optimum</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section id="beyond">
+        <h2>Beyond this lab</h2>
+        <ul>
+            <li><strong>Branch and bound.</strong> Explore the include/exclude tree, but prune any branch whose optimistic bound (the fractional greedy value of what's left) can't beat the best packing found so far. With good bounds it handles thousands of items.</li>
+            <li><strong>Approximation schemes.</strong> Round values down to a coarser scale and run a DP over values instead of weights. You choose the accuracy ε and pay for it in time: a fully polynomial-time approximation scheme (FPTAS).</li>
+            <li><strong>Meet in the middle.</strong> Split the items in half, list all subsets of each half, sort one list, and match. That's about 2<sup><i>n</i>/2</sup> work instead of 2<sup><i>n</i></sup>, useful when weights are huge but <i>n</i> is around 40.</li>
+            <li><strong>Variants.</strong> Unbounded knapsack (unlimited copies of each item), bounded knapsack (up to <i>k</i> copies), multidimensional knapsack (weight <em>and</em> volume limits), multiple knapsacks, and quadratic knapsack, where pairs of items add value together.</li>
+        </ul>
+    </section>
+
+    <section id="history">
+        <h2>A little history</h2>
+        <p>
+            The name is usually credited to the mathematician Tobias Dantzig in the early twentieth century. His son George Dantzig, the inventor of the simplex method,
+            studied the problem in 1957 and gave the greedy ratio rule and the LP-relaxation bound still used in branch and bound today.
+            Dynamic programming came from Richard Bellman in the 1950s. Karp's 1972 paper put knapsack on the first list of NP-complete problems,
+            and in 1975 Ibarra and Kim showed it could be approximated as closely as you like in polynomial time.
+        </p>
+        <p>
+            The problem even had a turn in cryptography: the Merkle–Hellman cryptosystem of 1978 hid messages in knapsack instances.
+            Adi Shamir broke it in 1982, a reminder that "NP-hard in the worst case" doesn't mean every instance is hard.
+        </p>
+    </section>
+</ArticleLayout>
+
+@code {
+    [Parameter, EditorRequired] public KnapsackInstance Instance { get; set; } = default!;
+    [Parameter] public int Version { get; set; }
+
+    private static readonly IReadOnlyList<(string, string)> Sections =
+    [
+        ("problem", "The problem"),
+        ("model", "Formal model"),
+        ("hard", "Why it's hard"),
+        ("structures", "Data structures"),
+        ("algorithms", "The algorithms"),
+        ("beyond", "Beyond this lab"),
+        ("history", "A little history"),
+    ];
+}

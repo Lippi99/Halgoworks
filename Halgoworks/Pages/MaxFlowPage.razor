@@ -1,0 +1,245 @@
+@page "/max-flow"
+@using Halgoworks.Core.MaxFlow
+@using Halgoworks.Components.MaxFlow
+@implements IDisposable
+
+<PageTitle>Maximum flow | Halgoworks</PageTitle>
+
+<div class="page">
+    <LabHeader Problem="Problems.MaxFlow" />
+
+    <section class="lab" aria-label="Maximum flow lab">
+        <div class="toolbar">
+            <div class="field">
+                <span>Algorithm</span>
+                <Segmented T="FlowAlgorithm" Options="AlgorithmOptions" Value="_algorithm" ValueChanged="SetAlgorithm" Label="Algorithm" />
+            </div>
+            <label class="field">
+                <span>Network</span>
+                <select value="@_preset" @onchange="SetPreset">
+                    <option value="textbook">Textbook example</option>
+                    <option value="water">City water supply</option>
+                    <option value="random">Random layered network</option>
+                </select>
+            </label>
+            @if (_preset == "random")
+            {
+                <label class="field">
+                    <span>Middle layers <output>@_layers</output></span>
+                    <input type="range" min="2" max="4" value="@_layers" style="--pct: @Pct(_layers, 2, 4)" @onchange="SetLayers" />
+                </label>
+                <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New network</button>
+            }
+            <span class="spacer"></span>
+            <div class="field">
+                <span>Show</span>
+                <Segmented T="bool" Options="Views" Value="_residual" ValueChanged="v => _residual = v" Label="Graph to show" />
+            </div>
+        </div>
+
+        <div class="lab-body">
+            <div class="stage">
+                <div class="stage-head">
+                    @if (_residual)
+                    {
+                        <ul class="legend">
+                            <li><span class="swatch line" style="background: @Palette.Series[0]"></span>Spare capacity (forward arc)</li>
+                            <li><span class="swatch line" style="background: @Palette.Series[1]"></span>Flow that can be cancelled (backward arc)</li>
+                            <li><span class="swatch line" style="background: @Palette.Signal"></span>Augmenting path</li>
+                        </ul>
+                    }
+                    else
+                    {
+                        <ul class="legend">
+                            <li><span class="swatch line" style="background: @Palette.Line; height: 8px"></span>Pipe width is capacity</li>
+                            <li><span class="swatch line" style="background: @Palette.Series[0]"></span>Flow</li>
+                            <li><span class="swatch line" style="background: @Palette.Text1"></span>Search tree</li>
+                            <li><span class="swatch line" style="background: @Palette.Signal"></span>Path or arc in focus</li>
+                            @if (Step.SourceSide is not null)
+                            {
+                                <li><span class="swatch" style="background: #1d3a63; border: 1px solid @Palette.Series[0]"></span>Source side S</li>
+                                <li><span class="swatch" style="background: #3a2420; border: 1px solid @Palette.Series[1]"></span>Sink side</li>
+                            }
+                        </ul>
+                    }
+                </div>
+                <div class="stage-body">
+                    <FlowGraph Network="_network" Step="Step" Residual="_residual" />
+                    <div class="flow-foot">
+                        <div class="frontier">
+                            <span class="muted">@FrontierLabel</span>
+                            @if (Step.Frontier.Count == 0)
+                            {
+                                <span class="muted">empty</span>
+                            }
+                            @foreach (var node in Step.Frontier)
+                            {
+                                <span class="chip">@_network.Nodes[node].Label</span>
+                            }
+                        </div>
+                        <div class="gauge" style="min-width: 260px; flex: 1; max-width: 420px;">
+                            <div class="gauge-head">
+                                <span>Flow out of @_network.Nodes[_network.Source].Label: <strong class="num">@Step.Total</strong></span>
+                                <span>maximum @_final.Total</span>
+                            </div>
+                            <div class="gauge-track">
+                                @if (Step.Total > 0)
+                                {
+                                    <span class="gauge-seg" style="flex: 0 0 @Palette.F(100.0 * Step.Total / Math.Max(1, _final.Total), "0.#")%"></span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <StepPanel Step="Step" Algorithm="MaxFlowSolver.Info(_algorithm)" Index="_player.Index" Count="_player.Count" />
+        </div>
+        <PlaybackBar Player="_player" Marks="_marks" />
+    </section>
+
+    <div class="results">
+        <section class="panel" aria-labelledby="mf-paths">
+            <h2 class="panel-title" id="mf-paths">Augmenting paths, in order</h2>
+            <p class="panel-sub">Each row is one push. The bottleneck is the smallest spare capacity along the path.</p>
+            <div class="panel-body">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>#</th><th>Path</th><th class="r">Bottleneck</th><th class="r">Total after</th></tr>
+                    </thead>
+                    <tbody>
+                        @for (var i = 0; i < _augments.Count; i++)
+                        {
+                            var a = _augments[i];
+                            <tr class="@(a.Step == _player.Index || a.Step - 1 == _player.Index ? "on" : null)">
+                                <td class="muted">@(i + 1)</td>
+                                <td>@a.Path</td>
+                                <td class="r">@a.Pushed</td>
+                                <td class="r">@a.Total</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        <section class="panel" aria-labelledby="mf-compare">
+            <h2 class="panel-title" id="mf-compare">Augmenting paths each algorithm needs</h2>
+            <p class="panel-sub">All three reach the same maximum flow of @_final.Total. They differ in how many paths they push along on the way.</p>
+            <div class="panel-body">
+                <BarChart Data="_compare" AriaLabel="Augmenting paths per algorithm" Min="0" />
+            </div>
+        </section>
+    </div>
+
+    <MaxFlowArticle />
+</div>
+
+@code {
+    private static readonly IReadOnlyList<SegOption<FlowAlgorithm>> AlgorithmOptions =
+    [
+        new(FlowAlgorithm.EdmondsKarp, "Edmonds–Karp"),
+        new(FlowAlgorithm.FordFulkerson, "Ford–Fulkerson"),
+        new(FlowAlgorithm.Dinic, "Dinic"),
+    ];
+
+    private static readonly IReadOnlyList<SegOption<bool>> Views = [new(false, "Flow"), new(true, "Residual graph")];
+
+    private sealed record Augment(int Step, string Path, int Pushed, int Total);
+
+    private readonly Player _player = new();
+    private FlowAlgorithm _algorithm = FlowAlgorithm.EdmondsKarp;
+    private string _preset = "textbook";
+    private int _layers = 2;
+    private int _seed = 4;
+    private bool _residual;
+
+    private FlowNetwork _network = FlowNetworks.Textbook();
+    private IReadOnlyList<MaxFlowStep> _steps = [];
+    private IReadOnlyList<int> _marks = [];
+    private IReadOnlyList<Augment> _augments = [];
+    private IReadOnlyList<BarDatum> _compare = [];
+
+    private MaxFlowStep Step => _steps[Math.Min(_player.Index, _steps.Count - 1)];
+    private MaxFlowStep _final => _steps[^1];
+
+    private string FrontierLabel => _algorithm switch
+    {
+        FlowAlgorithm.FordFulkerson => "DFS stack, top first:",
+        FlowAlgorithm.Dinic => "Nodes waiting:",
+        _ => "BFS queue:",
+    };
+
+    protected override void OnInitialized()
+    {
+        _player.Changed += OnPlayerChanged;
+        Rebuild(newNetwork: true);
+    }
+
+    private void OnPlayerChanged() => InvokeAsync(StateHasChanged);
+
+    private void Rebuild(bool newNetwork)
+    {
+        if (newNetwork)
+        {
+            _network = _preset switch
+            {
+                "water" => FlowNetworks.WaterSupply(),
+                "random" => FlowNetworks.Random(_layers, _seed),
+                _ => FlowNetworks.Textbook(),
+            };
+            _compare = AlgorithmOptions.Select(o =>
+            {
+                var last = MaxFlowSolver.Trace(_network, o.Value)[^1];
+                return new BarDatum(o.Text, last.Augmentations, $"{last.Augmentations}", false);
+            }).ToList();
+        }
+
+        _compare = _compare.Select((d, i) => d with { Highlight = AlgorithmOptions[i].Value == _algorithm }).ToList();
+        _steps = MaxFlowSolver.Trace(_network, _algorithm);
+        _marks = Enumerable.Range(1, _steps.Count - 1).Where(i => _steps[i].Phase != _steps[i - 1].Phase).ToList();
+        _augments = _steps
+            .Select((s, i) => (s, i))
+            .Where(x => x.s.Pushed is not null)
+            .Select(x => new Augment(x.i, PathName(x.s.Path), x.s.Pushed!.Value, x.s.Total))
+            .ToList();
+        _player.Load(_steps.Count);
+    }
+
+    private string PathName(IReadOnlyList<Arc> path)
+    {
+        string Head(Arc a) => _network.Nodes[a.Forward ? _network.Edges[a.Edge].To : _network.Edges[a.Edge].From].Label;
+        return string.Join(" → ", path.Select(Head).Prepend(_network.Nodes[_network.Source].Label));
+    }
+
+    private void SetAlgorithm(FlowAlgorithm algorithm)
+    {
+        _algorithm = algorithm;
+        Rebuild(newNetwork: false);
+    }
+
+    private void SetPreset(ChangeEventArgs e)
+    {
+        _preset = e.Value?.ToString() ?? "textbook";
+        Rebuild(newNetwork: true);
+    }
+
+    private void SetLayers(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var layers)) return;
+        _layers = layers;
+        Rebuild(newNetwork: true);
+    }
+
+    private void Reroll()
+    {
+        _seed = Random.Shared.Next(1, 100_000);
+        Rebuild(newNetwork: true);
+    }
+
+    private static string Pct(int value, int min, int max) => Palette.F(100.0 * (value - min) / (max - min), "0.#") + "%";
+
+    public void Dispose()
+    {
+        _player.Changed -= OnPlayerChanged;
+        _player.Dispose();
+    }
+}

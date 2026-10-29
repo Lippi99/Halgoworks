@@ -1,0 +1,136 @@
+<ArticleLayout Sections="Sections" Path="job-shop">
+    <section id="problem">
+        <h2>The problem</h2>
+        <p>
+            A workshop has several machines and a list of jobs. Each job is a fixed sequence of <strong>operations</strong>, and each operation needs one
+            specific machine for a known time: a bike frame is cut, then welded, then painted. A machine works on one operation at a time, an operation
+            can't be interrupted once started, and a job's operations must run in order. Find a schedule that finishes everything as early as possible.
+            The finishing time of the last operation is the <strong>makespan</strong>.
+        </p>
+        <p>
+            Factories are the classic setting, but the same structure appears whenever tasks with an internal order compete for shared resources: operating
+            rooms and surgical teams, test rigs in a lab, compute jobs on a cluster, or a print shop where every order passes through different presses.
+            With due dates added, the goal often shifts from makespan to lateness.
+        </p>
+    </section>
+
+    <section id="model">
+        <h2>Formal model</h2>
+        <p>Give each operation <i>o</i> a start time <i>S<sub>o</sub></i> and duration <i>p<sub>o</sub></i>. Then:</p>
+        <div class="formula" role="math" aria-label="job shop constraints">
+            <div class="row"><span>minimize</span><span><i>C</i><sub>max</sub> ≥ <i>S<sub>o</sub></i> + <i>p<sub>o</sub></i> for every operation <i>o</i></span></div>
+            <div class="row"><span>job order</span><span><i>S<sub>j,k+1</sub></i> ≥ <i>S<sub>j,k</sub></i> + <i>p<sub>j,k</sub></i></span></div>
+            <div class="row"><span>one at a time</span><span><i>S<sub>o</sub></i> ≥ <i>S<sub>o′</sub></i> + <i>p<sub>o′</sub></i> &nbsp;or&nbsp; <i>S<sub>o′</sub></i> ≥ <i>S<sub>o</sub></i> + <i>p<sub>o</sub></i> &nbsp;when <i>o</i>, <i>o′</i> share a machine</span></div>
+        </div>
+        <p>
+            That "or" is what makes it hard, and it has a beautiful picture: the <strong>disjunctive graph</strong>. Every operation is a node. Arrows
+            fixed by job order are always there; every pair of operations on the same machine is joined by an undirected edge that must be turned into an
+            arrow one way or the other. Pick a direction for every such edge without creating a cycle and you've picked a schedule. Its makespan is the
+            length of the <strong>longest path</strong> through the graph, which is exactly the critical path the lab highlights in amber.
+        </p>
+    </section>
+
+    <section id="hard">
+        <h2>Why it's hard</h2>
+        <p>
+            A schedule is fixed by choosing the order of operations on each machine. With <i>n</i> jobs that each visit all <i>m</i> machines, that's
+            (<i>n</i>!)<sup><i>m</i></sup> combinations: about 1.4 × 10<sup>17</sup> for the 6 × 6 instance ft06, and 4 × 10<sup>65</sup> for its
+            10 × 10 sibling ft10. Many are infeasible, many are equivalent, but no known method avoids exponential effort in the worst case. The problem is
+            strongly NP-hard.
+        </p>
+        <p>
+            ft10 was published in 1963 and its optimum, 930, wasn't proven until 1989. Benchmark instances from the early 1990s still include some
+            whose optimum nobody has proven. Job-shop scheduling is famous for being hard in practice, not just in theory.
+        </p>
+    </section>
+
+    <section id="structures">
+        <h2>Data structures</h2>
+        <h3>The disjunctive graph as arrays</h3>
+        <p>
+            Tabu search stores a schedule as one array per machine listing its operations in order. Together with each job's fixed order, that defines a
+            directed acyclic graph. A topological sort (Kahn's algorithm, using an in-degree count and a queue) visits the operations so that each
+            one's predecessors are done first, and the earliest start of each is the larger of its job predecessor's and machine predecessor's finish times.
+            That's the longest path, computed in <i>O</i>(<i>N</i>) for <i>N</i> operations. If the sort can't visit every node, the orders contain a cycle
+            and the schedule is impossible.
+        </p>
+        <h3>Ready times and a waiting set</h3>
+        <p>
+            Dispatching keeps, for every job and every machine, the time it becomes free, plus the set of operations whose job predecessor is done.
+            Each round computes earliest start and finish for every waiting operation, so a round costs <i>O</i>(<i>n</i>) and the whole schedule
+            <i>O</i>(<i>n</i>² · <i>m</i>).
+        </p>
+        <h3>The tabu list</h3>
+        <p>
+            Tabu search's short-term memory is a hash map from an ordered pair of operations to the iteration until which swapping them back is forbidden.
+            Checking a move is a single lookup.
+        </p>
+    </section>
+
+    <section id="algorithms">
+        <h2>The algorithms</h2>
+        <h3>Giffler–Thompson with priority rules</h3>
+        <p>
+            The Giffler–Thompson algorithm builds an <strong>active</strong> schedule, one where no operation could start earlier without delaying another.
+            Some optimal schedule is always active, so the method never rules out the best answer by construction. In each round it finds the waiting operation
+            that could finish first, looks at its machine, and collects every operation that wants that machine and could start before that finish time.
+            Only those genuinely compete; a <strong>priority rule</strong> picks the winner:
+        </p>
+        <table class="compare-table">
+            <thead>
+                <tr><th>Rule</th><th>Picks</th><th>Intuition</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>MWKR</td><td>Most work remaining</td><td>Keep the longest job moving; it is the one most likely to set the makespan</td></tr>
+                <tr><td>SPT</td><td>Shortest operation</td><td>Clear quick work first; good for average flow time</td></tr>
+                <tr><td>LPT</td><td>Longest operation</td><td>Get big blocks out of the way early</td></tr>
+                <tr><td>LWKR</td><td>Least work remaining</td><td>Finish nearly-done jobs</td></tr>
+                <tr><td>FCFS</td><td>Earliest ready</td><td>Fair queueing, no lookahead</td></tr>
+                <tr><td>EDD</td><td>Earliest due date</td><td>Fight lateness rather than makespan</td></tr>
+            </tbody>
+        </table>
+        <p>
+            None of them is best on every instance, which is why the comparison chart is worth a look on each example.
+        </p>
+        <h3>Tabu search on the critical path</h3>
+        <p>
+            Only the critical path determines the makespan, so only reordering operations on it can shorten the schedule. The neighborhood used here,
+            from van Laarhoven, Aarts and Lenstra, swaps two adjacent operations that share a machine on the critical path. Such a swap can never
+            create a cycle, so every neighbor is a valid schedule. Each iteration moves to the best neighbor, even if it is worse, and forbids undoing the move for a few
+            iterations. That forced exploration is what lets it climb out of local optima. On ft06 it reaches the proven optimum of 55.
+        </p>
+    </section>
+
+    <section id="beyond">
+        <h2>Beyond this lab</h2>
+        <ul>
+            <li><strong>Constraint programming.</strong> Today's strongest exact solvers, such as Google's CP-SAT and IBM's CP Optimizer, reason about time windows on each machine and prune huge parts of the search with clever propagation.</li>
+            <li><strong>Shifting bottleneck.</strong> Adams, Balas and Zawack's 1988 heuristic schedules the most constrained machine first by solving a one-machine problem, then reoptimizes the others.</li>
+            <li><strong>Stronger tabu search.</strong> Nowicki and Smutnicki's 1996 algorithm restricts swaps to the ends of critical blocks, which cuts the neighborhood without losing good moves. It was state of the art for years.</li>
+            <li><strong>Variants.</strong> Flow shop, where every job visits the machines in the same order (Johnson's 1954 rule solves the two-machine case exactly); open shop, where the order is free; flexible job shop, where an operation can run on any of several machines; and versions with setup times or due dates.</li>
+        </ul>
+    </section>
+
+    <section id="history">
+        <h2>A little history</h2>
+        <p>
+            Selmer Johnson solved the two-machine flow shop in 1954, one of the first results in scheduling theory. Bernard Giffler and Gerald Thompson
+            described active schedules and how to generate them in 1960. In 1963 Henry Fisher and Gerald Thompson published the test problems now called
+            ft06, ft10 and ft20, and in 1964 Bernard Roy and B. Sussmann introduced the disjunctive graph. Jacques Carlier and Éric Pinson finally proved
+            ft10's optimum with branch and bound in 1989.
+        </p>
+    </section>
+</ArticleLayout>
+
+@code {
+    private static readonly IReadOnlyList<(string, string)> Sections =
+    [
+        ("problem", "The problem"),
+        ("model", "Formal model"),
+        ("hard", "Why it's hard"),
+        ("structures", "Data structures"),
+        ("algorithms", "The algorithms"),
+        ("beyond", "Beyond this lab"),
+        ("history", "A little history"),
+    ];
+}

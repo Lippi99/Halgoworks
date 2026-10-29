@@ -1,0 +1,33 @@
+@using Halgoworks.Core.Knapsack
+
+<ol class="density-list" aria-label="Items ranked by value per kg">
+    @foreach (var index in Step.Order)
+    {
+        var item = Instance.Items[index];
+        var state = Step.Items.Count > index ? Step.Items[index] : ItemState.Idle;
+        <li class="@Css(state)" @key="item.Id">
+            <span class="d-name"><span aria-hidden="true">@item.Icon</span> @item.Name</span>
+            <span class="d-track"><span class="d-bar" style="width: @Palette.F(100 * item.Density / _max, "0.#")%"></span></span>
+            <span class="d-value num">@Num.F2(item.Density) per kg</span>
+            <span class="d-meta num">@item.Weight kg, value @item.Value</span>
+            <span class="d-state">@(state switch { ItemState.Taken => "packed", ItemState.Skipped => "left out", ItemState.Focus => "deciding", _ => "" })</span>
+        </li>
+    }
+</ol>
+
+@code {
+    [Parameter, EditorRequired] public KnapsackInstance Instance { get; set; } = default!;
+    [Parameter, EditorRequired] public KnapsackStep Step { get; set; } = default!;
+
+    private double _max = 1;
+
+    protected override void OnParametersSet() => _max = Instance.Items.Max(i => i.Density);
+
+    private static string? Css(ItemState state) => state switch
+    {
+        ItemState.Focus => "focus",
+        ItemState.Taken => "taken",
+        ItemState.Skipped => "skipped",
+        _ => null,
+    };
+}

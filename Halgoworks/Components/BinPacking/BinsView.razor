@@ -1,0 +1,146 @@
+@using Halgoworks.Core.BinPacking
+
+<div class="queue" aria-label="Items waiting">
+    <span class="queue-label">@(Step.Queue.Count == 0 ? "All items placed" : $"Waiting: {Step.Queue.Count}")</span>
+    @foreach (var id in Step.Queue.Take(MaxQueue))
+    {
+        var size = _size[id];
+        <span class="queue-item @(id == Step.Item ? "focus" : null)" @key="id"
+              style="width: @Palette.F(26 + 92.0 * size / Instance.Capacity, "0")px; background: @Palette.SizeClass[Cls(size)]; color: @(Cls(size) == 2 ? Palette.Ink0 : "#fff")"
+              title="@($"Item #{id + 1}: size {size}{Unit}")">@size</span>
+    }
+    @if (Step.Queue.Count > MaxQueue)
+    {
+        <span class="queue-more">+@(Step.Queue.Count - MaxQueue) more</span>
+    }
+</div>
+
+<div class="scroll-x">
+    <svg class="viz" viewBox="0 0 @W @H" style="min-width: @(Palette.F(W * 0.7, "0"))px" role="img" aria-label="@($"{Step.Bins.Count} bins")">
+        @if (Slots == 0)
+        {
+            <g>
+                <rect x="@Gap" y="@Top" width="@BW" height="@BH" rx="6" fill="none" stroke="@Palette.Line" stroke-dasharray="5 4" />
+                <text x="@(Gap + BW + 18)" y="@(Top + BH / 2)" dominant-baseline="central" font-size="14" class="t-3">No bins are open yet. The first item will open one.</text>
+            </g>
+        }
+        @for (var b = 0; b < Slots; b++)
+        {
+            var x = X(b);
+            var isGhost = b >= Step.Bins.Count;
+            var closed = !isGhost && Step.Closed.Count > b && Step.Closed[b];
+            var probe = !isGhost && Step.Probes.Count > b ? Step.Probes[b] : Probe.None;
+            <g opacity="@(closed ? "0.45" : "1")">
+                @if (isGhost)
+                {
+                    <g>
+                        <rect x="@x" y="@Top" width="@BW" height="@BH" rx="6" fill="none" stroke="@Palette.Signal" stroke-width="1.5" stroke-dasharray="5 4" />
+                        <text x="@(x + BW / 2)" y="@(Top + BH + 20)" text-anchor="middle" font-size="12" class="t-signal" font-weight="600">new bin</text>
+                    </g>
+                }
+                else
+                {
+                    <g>
+                        <rect x="@x" y="@Top" width="@BW" height="@BH" rx="6" fill="@Palette.Ink0" stroke="@(probe == Probe.Chosen ? Palette.Signal : Palette.Line)" stroke-width="@(probe == Probe.Chosen ? 2 : 1)" />
+                        <text x="@(x + BW / 2)" y="@(Top + BH + 20)" text-anchor="middle" font-size="12" class="@(probe == Probe.Chosen ? "t-signal" : "t-3")" font-weight="@(probe == Probe.Chosen ? "600" : "400")">bin @(b + 1)</text>
+                        @if (closed)
+                        {
+                            <g><text x="@(x + BW / 2)" y="@(Top + BH + 35)" text-anchor="middle" font-size="11" class="t-3">closed</text></g>
+                        }
+                    </g>
+                }
+            </g>
+
+            @if (!isGhost)
+            {
+                var level = 0;
+                foreach (var id in Step.Bins[b])
+                {
+                    var size = _size[id];
+                    var y = Top + BH - (level + size) * Unit1;
+                    var h = size * Unit1 - 2;
+                    var cls = Cls(size);
+                    <g opacity="@(closed ? "0.5" : "1")">
+                        <rect x="@(x + 3)" y="@F(y + 1)" width="@(BW - 6)" height="@F(h)" rx="3" fill="@Palette.SizeClass[cls]"
+                              stroke="@(id == Step.Placed ? Palette.Signal : "none")" stroke-width="2" class="@(id == Step.Placed ? "glow" : null)">
+                            <title>@($"Item #{id + 1}: size {size}{Unit}")</title>
+                        </rect>
+                        @if (h >= 15)
+                        {
+                            <g><text x="@(x + BW / 2)" y="@F(y + 1 + h / 2)" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600"
+                                  fill="@(cls == 2 ? Palette.Ink0 : "#fff")" class="tabular">@size</text></g>
+                        }
+                    </g>
+                    level += size;
+                }
+
+                var free = Instance.Capacity - level;
+                if (free > 0 && free * Unit1 >= 20)
+                {
+                    <g><text x="@(x + BW / 2)" y="@F(Top + BH - level * Unit1 - 9)" text-anchor="middle" font-size="11" class="t-3 tabular">@free free</text></g>
+                }
+            }
+
+            @if (probe == Probe.TooFull)
+            {
+                <g><text x="@(x + BW / 2)" y="@(Top - 12)" text-anchor="middle" font-size="16" font-weight="700" fill="@Palette.BadText">✗</text></g>
+            }
+            else if (probe == Probe.Fits)
+            {
+                <g><text x="@(x + BW / 2)" y="@(Top - 12)" text-anchor="middle" font-size="15" font-weight="700" fill="@Palette.GoodText">✓</text></g>
+            }
+            else if (probe == Probe.Chosen || (isGhost && Step.Target == b))
+            {
+                <path d="@($"M{x + BW / 2 - 8} {Top - 22}h16l-8 11z")" fill="@Palette.Signal" class="glow" />
+            }
+        }
+
+        @if (Step is { Item: { } item, Target: { } target })
+        {
+            var size = _size[item];
+            var level = target < Step.Bins.Count ? Step.Bins[target].Sum(i => _size[i]) : 0;
+            var y = Top + BH - (level + size) * Unit1;
+            var x = X(target);
+            var overflow = level + size > Instance.Capacity;
+            if (!overflow)
+            {
+                <g>
+                    <rect x="@(x + 3)" y="@F(y + 1)" width="@(BW - 6)" height="@F(size * Unit1 - 2)" rx="3" fill="@Palette.Signal" fill-opacity="0.16"
+                          stroke="@Palette.Signal" stroke-width="1.5" stroke-dasharray="4 3" />
+                    <text x="@(x + BW / 2)" y="@F(y + 1 + (size * Unit1 - 2) / 2)" text-anchor="middle" dominant-baseline="central" font-size="12"
+                          font-weight="700" class="t-signal tabular">@size</text>
+                </g>
+            }
+        }
+    </svg>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public BinPackingInstance Instance { get; set; } = default!;
+    [Parameter, EditorRequired] public BinPackingStep Step { get; set; } = default!;
+
+    /// <summary>Most bin slots shown at any step of the run; keeps the drawing's scale fixed while it plays.</summary>
+    [Parameter] public int MaxSlots { get; set; }
+
+    private const int BW = 58;
+    private const int Gap = 20;
+    private const int Top = 34;
+    private const int BH = 250;
+    private const int MaxQueue = 14;
+
+    private Dictionary<int, int> _size = [];
+
+    private string Unit => Instance.Unit.Length == 0 ? "" : $" {Instance.Unit}";
+    private double Unit1 => (double)BH / Instance.Capacity;
+    private int Slots => Step.Bins.Count + (Step.Target == Step.Bins.Count ? 1 : 0);
+    private int W => Math.Max(Math.Max(8, MaxSlots), Slots) * (BW + Gap) + Gap;
+    private int H => Top + BH + 44;
+
+    protected override void OnParametersSet() => _size = Instance.Items.ToDictionary(i => i.Id, i => i.Size);
+
+    private static int X(int bin) => Gap + bin * (BW + Gap);
+
+    private int Cls(int size) => size * 2 > Instance.Capacity ? 2 : size * 3 > Instance.Capacity ? 1 : 0;
+
+    private static string F(double v) => Palette.F(v, "0.#");
+}

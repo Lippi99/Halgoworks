@@ -1,0 +1,53 @@
+@using Halgoworks.Core.Knapsack
+
+<figure class="figure">
+    <svg class="viz" viewBox="0 0 @W @H" style="max-width: @(W)px" role="img" aria-label="@($"All {_subsets.Count} subsets of the current items")">
+        @for (var i = 0; i < _subsets.Count; i++)
+        {
+            var s = _subsets[i];
+            var x = i % _cols * Cell;
+            var y = i / _cols * Cell;
+            var fits = s.Weight <= Instance.Capacity;
+            var best = fits && s.Value == _best;
+            var fill = !fits ? Palette.Ink2 : best ? Palette.Signal : Palette.RampAt(_best == 0 ? 0 : 0.15 + 0.85 * s.Value / _best);
+            <rect x="@x" y="@y" width="@(Cell - 2)" height="@(Cell - 2)" rx="2" fill="@fill">
+                <title>@Describe(s.Mask, s.Weight, s.Value, fits)</title>
+            </rect>
+        }
+    </svg>
+    <figcaption>
+        Every square is one way to choose items from the current example: all @_subsets.Count of them (2<sup>@Instance.Items.Count</sup>).
+        Dark squares are too heavy. The rest get lighter as their value rises, and the amber square@(_bestCount == 1 ? " is" : "s are") the best. Only @_feasible fit at all.
+        Hover a square to see which items it holds. Brute force has to check every square; dynamic programming never looks at them individually.
+    </figcaption>
+</figure>
+
+@code {
+    [Parameter, EditorRequired] public KnapsackInstance Instance { get; set; } = default!;
+
+    private IReadOnlyList<(int Mask, int Weight, int Value)> _subsets = [];
+    private int _cols;
+    private int _best;
+    private int _bestCount;
+    private int _feasible;
+    private int Cell => Math.Min(44, 640 / _cols);
+    private int W => _cols * Cell;
+    private int H => (int)Math.Ceiling((double)_subsets.Count / _cols) * Cell;
+
+    protected override void OnParametersSet()
+    {
+        _subsets = KnapsackSolver.Enumerate(Instance);
+        _cols = 1 << (Instance.Items.Count + 1) / 2;
+        var fits = _subsets.Where(s => s.Weight <= Instance.Capacity).ToList();
+        _best = fits.Max(s => s.Value);
+        _bestCount = fits.Count(s => s.Value == _best);
+        _feasible = fits.Count;
+    }
+
+    private string Describe(int mask, int weight, int value, bool fits)
+    {
+        var names = Instance.Items.Where((_, i) => (mask & (1 << i)) != 0).Select(i => i.Name).ToList();
+        var what = names.Count == 0 ? "Nothing" : string.Join(", ", names);
+        return $"{what}: {weight} kg, value {value}{(fits ? "" : " (too heavy)")}";
+    }
+}

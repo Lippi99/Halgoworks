@@ -1,0 +1,169 @@
+@using Halgoworks.Core.Vrp
+
+<svg class="viz" viewBox="0 0 @Size @Size" style="max-width: 640px; margin: 0 auto;" role="img"
+     aria-label="@($"Map of {Instance.Customers.Count} customers and {Step.Routes.Count} routes")">
+    <defs>
+        @for (var i = 0; i < Palette.Series.Length; i++)
+        {
+            <marker id="@($"vrp-arrow-{i}")" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto">
+                <path d="M1 1L9 5L1 9z" fill="@Palette.Series[i]" />
+            </marker>
+        }
+        <marker id="vrp-arrow-other" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto">
+            <path d="M1 1L9 5L1 9z" fill="@Palette.Other" />
+        </marker>
+        <clipPath id="vrp-clip">
+            <rect x="@Margin" y="@Margin" width="@(Size - 2 * Margin)" height="@(Size - 2 * Margin)" rx="6" />
+        </clipPath>
+    </defs>
+
+    <rect x="@Margin" y="@Margin" width="@(Size - 2 * Margin)" height="@(Size - 2 * Margin)" rx="6" fill="@Palette.Ink0" stroke="@Palette.Line" />
+    @for (var k = 1; k < 20; k++)
+    {
+        var major = k % 5 == 0;
+        <line x1="@F(P(k))" x2="@F(P(k))" y1="@Margin" y2="@(Size - Margin)" stroke="@(major ? "#22365a" : "#18283f")" stroke-width="1" />
+        <line y1="@F(P(k))" y2="@F(P(k))" x1="@Margin" x2="@(Size - Margin)" stroke="@(major ? "#22365a" : "#18283f")" stroke-width="1" />
+    }
+    <text x="@(Size - Margin - 4)" y="@(Size - Margin - 6)" text-anchor="end" font-size="11" class="t-3">1 square = 1 km</text>
+
+    @if (Step.Sweep is { } angle)
+    {
+        var (dx, dy) = Pos(0);
+        <line x1="@F(P(dx))" y1="@F(P(dy))" x2="@F(P(dx) + Math.Cos(angle) * 900)" y2="@F(P(dy) + Math.Sin(angle) * 900)"
+              stroke="@Palette.Signal" stroke-width="2" clip-path="url(#vrp-clip)" />
+    }
+
+    @for (var r = 0; r < Step.Routes.Count; r++)
+    {
+        var route = Step.Routes[r];
+        var slot = Step.Colors.Count > r ? Step.Colors[r] : r;
+        var color = slot < 0 ? Palette.Other : Palette.Slot(slot);
+        var neutral = slot < 0;
+        var active = Step.Active is null || Step.Active == r;
+        <path d="@RoutePath(route)" fill="none" stroke="@color" stroke-width="@(neutral ? 1.2 : active ? 3 : 2.2)" stroke-linejoin="round" stroke-linecap="round"
+              opacity="@(neutral ? "0.55" : active ? "1" : "0.4")"
+              marker-mid="@(neutral ? null : $"url(#vrp-arrow-{(slot < Palette.Series.Length ? slot.ToString() : "other")})")" />
+    }
+
+    @foreach (var edge in Step.Removed)
+    {
+        var (ax, ay) = Pos(edge[0]);
+        var (bx, by) = Pos(edge[1]);
+        <line x1="@F(P(ax))" y1="@F(P(ay))" x2="@F(P(bx))" y2="@F(P(by))" stroke="@Palette.BadText" stroke-width="2.5" stroke-dasharray="6 4" />
+    }
+
+    @foreach (var edge in Step.Added)
+    {
+        var (ax, ay) = Pos(edge[0]);
+        var (bx, by) = Pos(edge[1]);
+        <line x1="@F(P(ax))" y1="@F(P(ay))" x2="@F(P(bx))" y2="@F(P(by))" stroke="@Palette.Signal" stroke-width="3" class="glow" />
+    }
+
+    @if (Step.Link is { Length: 2 } link)
+    {
+        var (ax, ay) = Pos(link[0]);
+        var (bx, by) = Pos(link[1]);
+        var bad = Step.LinkOk == false;
+        <line x1="@F(P(ax))" y1="@F(P(ay))" x2="@F(P(bx))" y2="@F(P(by))" stroke="@(bad ? Palette.BadText : Palette.Signal)" stroke-width="2.5"
+              stroke-dasharray="7 5" class="@(bad ? null : "glow")" />
+        @if (bad)
+        {
+            <g>
+                <circle cx="@F((P(ax) + P(bx)) / 2)" cy="@F((P(ay) + P(by)) / 2)" r="10" fill="@Palette.Ink0" stroke="@Palette.BadText" stroke-width="1.5" />
+                <text x="@F((P(ax) + P(bx)) / 2)" y="@F((P(ay) + P(by)) / 2)" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="700" fill="@Palette.BadText">✗</text>
+            </g>
+        }
+    }
+
+    @if (Step.Final && !Reduced)
+    {
+        @for (var r = 0; r < Step.Routes.Count; r++)
+        {
+            var route = Step.Routes[r];
+            var slot = Step.Colors.Count > r ? Step.Colors[r] : r;
+            var length = VrpSolver.Evaluate(Instance, route).Distance;
+            <circle r="6" fill="@Palette.Ink0" stroke="@Palette.Slot(slot)" stroke-width="3">
+                <animateMotion dur="@($"{Palette.F(Math.Max(3, length * 0.35), "0.#")}s")" repeatCount="indefinite" path="@RoutePath(route)" />
+            </circle>
+        }
+    }
+
+    @foreach (var c in Instance.Customers)
+    {
+        var (x, y) = (P(c.X), P(c.Y));
+        var radius = 6 + c.Demand * 0.8;
+        var routeIndex = RouteOf(c.Id);
+        var slot = routeIndex < 0 ? -2 : Step.Colors.Count > routeIndex ? Step.Colors[routeIndex] : routeIndex;
+        var fill = slot == -2 ? Palette.Ink2 : slot < 0 ? "#3b4a63" : Palette.Slot(slot);
+        var focus = Step.Focus.Contains(c.Id);
+        <g>
+            @if (focus)
+            {
+                <circle cx="@F(x)" cy="@F(y)" r="@F(radius + 5)" fill="none" stroke="@Palette.Signal" stroke-width="2.5" class="glow" />
+            }
+            <circle cx="@F(x)" cy="@F(y)" r="@F(radius)" fill="@fill" stroke="@(slot == -2 ? Palette.Text3 : Palette.Ink0)" stroke-width="@(slot == -2 ? 1.2 : 2)">
+                <title>@Describe(c)</title>
+            </circle>
+            <text x="@F(x)" y="@F(y)" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#fff" pointer-events="none">@c.Id</text>
+        </g>
+    }
+
+    @{
+        var (depotX, depotY) = (P(Instance.DepotX), P(Instance.DepotY));
+    }
+    <g>
+        <rect x="@F(depotX - 13)" y="@F(depotY - 13)" width="26" height="26" rx="5" fill="#d8e1ee" stroke="@Palette.Ink0" stroke-width="2" />
+        <path d="@($"M{F(depotX - 7)} {F(depotY + 6)}V{F(depotY - 2)}L{F(depotX)} {F(depotY - 8)}L{F(depotX + 7)} {F(depotY - 2)}V{F(depotY + 6)}Z")" fill="@Palette.Ink0" />
+        <text x="@F(depotX)" y="@F(depotY + 27)" text-anchor="middle" font-size="12" font-weight="600" class="t-1">Depot</text>
+    </g>
+</svg>
+
+@code {
+    [Parameter, EditorRequired] public VrpInstance Instance { get; set; } = default!;
+    [Parameter, EditorRequired] public VrpStep Step { get; set; } = default!;
+    [Parameter] public bool Reduced { get; set; }
+
+    private const int Size = 600;
+    private const int Margin = 20;
+    private const double Km = (Size - 2.0 * Margin) / 20;
+
+    private static double P(double km) => Margin + km * Km;
+
+    private (double X, double Y) Pos(int node) => Instance.Pos(node);
+
+    private int RouteOf(int customer)
+    {
+        for (var r = 0; r < Step.Routes.Count; r++)
+            if (Array.IndexOf(Step.Routes[r], customer) >= 0) return r;
+        return -1;
+    }
+
+    // Depot → stops → depot, with an extra vertex at the middle of each leg so marker-mid can draw a direction arrow there.
+    private string RoutePath(int[] route)
+    {
+        var nodes = new List<int> { 0 };
+        nodes.AddRange(route);
+        nodes.Add(0);
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < nodes.Count; i++)
+        {
+            var (x, y) = Pos(nodes[i]);
+            if (i == 0)
+            {
+                sb.Append($"M{F(P(x))} {F(P(y))}");
+                continue;
+            }
+
+            var (px, py) = Pos(nodes[i - 1]);
+            sb.Append($"L{F(P((px + x) / 2))} {F(P((py + y) / 2))}L{F(P(x))} {F(P(y))}");
+        }
+
+        return sb.ToString();
+    }
+
+    private string Describe(Customer c) => Instance.UseDeadlines
+        ? $"C{c.Id}: demand {c.Demand}, deliver by {VrpInstance.Clock(c.Deadline)}"
+        : $"C{c.Id}: demand {c.Demand}";
+
+    private static string F(double v) => Palette.F(v, "0.#");
+}

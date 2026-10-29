@@ -1,0 +1,253 @@
+@page "/routing"
+@using Halgoworks.Core.Vrp
+@using Halgoworks.Components.Vrp
+@implements IDisposable
+
+<PageTitle>Vehicle routing | Halgoworks</PageTitle>
+
+<div class="page">
+    <LabHeader Problem="Problems.Routing" />
+
+    <section class="lab" aria-label="Vehicle routing lab">
+        <div class="toolbar">
+            <div class="field">
+                <span>Algorithm</span>
+                <Segmented T="VrpAlgorithm" Options="AlgorithmOptions" Value="_algorithm" ValueChanged="SetAlgorithm" Label="Algorithm" />
+            </div>
+            <label class="field">
+                <span>Map</span>
+                <select value="@(_clustered ? "clustered" : "uniform")" @onchange="SetMap">
+                    <option value="uniform">City center: spread out</option>
+                    <option value="clustered">Neighborhoods: clustered</option>
+                </select>
+            </label>
+            <label class="field">
+                <span>Customers <output>@_count</output></span>
+                <input type="range" min="6" max="25" value="@_count" style="--pct: @Pct(_count, 6, 25)" @onchange="SetCount" />
+            </label>
+            <button type="button" class="btn" @onclick="Reroll"><Icon Name="shuffle" />New map</button>
+            <label class="check"><input type="checkbox" checked="@_deadlines" @onchange="ToggleDeadlines" />Delivery deadlines</label>
+            <label class="check"><input type="checkbox" checked="@_polish" @onchange="TogglePolish" />Polish with 2-opt</label>
+            <span class="spacer"></span>
+            <div class="field">
+                <span>View</span>
+                <Segmented T="bool" Options="Views" Value="_view3d" ValueChanged="v => _view3d = v" Label="View" />
+            </div>
+        </div>
+
+        <div class="lab-body">
+            <div class="stage">
+                <div class="stage-head">
+                    <ul class="legend">
+                        <li><span class="swatch" style="background: #d8e1ee"></span>Depot</li>
+                        <li><span class="swatch" style="background: @Palette.Ink2; border: 1px solid @Palette.Text3; border-radius: 50%"></span>Customer (size = demand)</li>
+                        <li><span class="swatch line" style="background: @Palette.Series[0]"></span>Truck route (color = truck)</li>
+                        <li><span class="swatch ring"></span>In focus</li>
+                        @if (_polish)
+                        {
+                            <li><span class="swatch line" style="background: @Palette.BadText"></span>Edge removed by 2-opt</li>
+                        }
+                    </ul>
+                </div>
+                <div class="stage-body">
+                    @if (_view3d)
+                    {
+                        <Scene3D Kind="vrp" State="SceneState" Version="_version * 100000 + _player.Index" Label="Delivery routes over a 3D city" />
+                    }
+                    else
+                    {
+                        <div class="vrp-grid">
+                            <VrpMap Instance="_instance" Step="Step" />
+                            <RouteList Instance="_instance" Step="Step" />
+                        </div>
+                    }
+                    @if (Step.Savings.Count > 0)
+                    {
+                        <table class="data-table savings" aria-label="Savings list">
+                            <thead>
+                                <tr><th>Pair</th><th class="r">Saving</th><th>Outcome</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in Step.Savings)
+                                {
+                                    <tr class="@(row.Current ? "on" : null)">
+                                        <td>C@(row.I) and C@(row.J)</td>
+                                        <td class="r">@Num.F1(row.Saving) km</td>
+                                        <td>
+                                            @switch (row.Status)
+                                            {
+                                                case SavingsStatus.Merged:
+                                                    <span class="status-ok">✓ joined</span>
+                                                    break;
+                                                case SavingsStatus.Rejected:
+                                                    <span class="status-bad">✗ doesn't fit</span>
+                                                    break;
+                                                case SavingsStatus.Skipped:
+                                                    <span class="muted">skipped: not at a route end</span>
+                                                    break;
+                                                default:
+                                                    <span class="muted">waiting</span>
+                                                    break;
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+            <StepPanel Step="Step" Algorithm="VrpSolver.Info(_algorithm, _polish)" Index="_player.Index" Count="_player.Count" />
+        </div>
+        <PlaybackBar Player="_player" Marks="_marks" />
+    </section>
+
+    <div class="results">
+        <section class="panel" aria-labelledby="vrp-distance">
+            <h2 class="panel-title" id="vrp-distance">Total distance as the algorithm runs</h2>
+            <p class="panel-sub">@DistanceNote</p>
+            <div class="panel-body">
+                <LineChart Series="_distanceSeries" XLabels="_stepLabels" Marker="_player.Index" XTitle="Step" YFormat="@(v => $"{Num.F1(v)} km")" YMin="0"
+                           EndLabels="false" AriaLabel="Total distance at each step" />
+            </div>
+        </section>
+        <section class="panel" aria-labelledby="vrp-compare">
+            <h2 class="panel-title" id="vrp-compare">Three heuristics on this map</h2>
+            <p class="panel-sub">Total distance driven, @(_polish ? "after 2-opt polishing" : "without 2-opt") and @(_deadlines ? "with" : "without") deadlines. Shorter is better.</p>
+            <div class="panel-body">
+                <BarChart Data="_compare" AriaLabel="Distance by algorithm" Min="0" TickFormat="@(v => $"{Palette.F(v)} km")" />
+                <dl class="figures" style="margin-top: 22px">
+                    <div><dt>Trucks</dt><dd>@_final.Routes.Count</dd></div>
+                    <div><dt>Distance</dt><dd>@Num.F1(_final.Distance)<small>km</small></dd></div>
+                    <div><dt>Fuel</dt><dd>$@Palette.F(_final.Distance * _instance.FuelPerKm, "0")</dd></div>
+                    <div><dt>Day's cost</dt><dd>$@Palette.F(VrpSolver.Cost(_instance, _final.Routes), "0")</dd></div>
+                </dl>
+            </div>
+        </section>
+    </div>
+
+    <VrpArticle />
+</div>
+
+@code {
+    private static readonly IReadOnlyList<SegOption<VrpAlgorithm>> AlgorithmOptions =
+    [
+        new(VrpAlgorithm.Savings, "Clarke–Wright savings"),
+        new(VrpAlgorithm.Sweep, "Sweep"),
+        new(VrpAlgorithm.NearestNeighbor, "Nearest neighbor"),
+    ];
+
+    private static readonly IReadOnlyList<SegOption<bool>> Views = [new(false, "2D"), new(true, "3D")];
+
+    private readonly Player _player = new();
+    private VrpAlgorithm _algorithm = VrpAlgorithm.Savings;
+    private bool _clustered;
+    private int _count = 16;
+    private int _seed = 11;
+    private bool _deadlines;
+    private bool _polish = true;
+    private bool _view3d;
+    private int _version;
+
+    private VrpInstance _instance = VrpInstances.Random(16, 11, false, false);
+    private IReadOnlyList<VrpStep> _steps = [];
+    private IReadOnlyList<int> _marks = [];
+    private IReadOnlyList<BarDatum> _compare = [];
+    private IReadOnlyList<LineSeries> _distanceSeries = [];
+    private IReadOnlyList<string> _stepLabels = [];
+
+    private VrpStep Step => _steps[Math.Min(_player.Index, _steps.Count - 1)];
+    private VrpStep _final => _steps[^1];
+
+    private string DistanceNote => _algorithm == VrpAlgorithm.Savings
+        ? "Savings starts from one truck per customer, the longest plan, and every merge shortens it. 2-opt then trims what's left."
+        : "Routes are built up from nothing, so distance grows as customers are added; 2-opt then pulls it back down.";
+
+    protected override void OnInitialized()
+    {
+        _player.Changed += OnPlayerChanged;
+        Rebuild(newInstance: true);
+    }
+
+    private void OnPlayerChanged() => InvokeAsync(StateHasChanged);
+
+    private void Rebuild(bool newInstance)
+    {
+        if (newInstance) _instance = VrpInstances.Random(_count, _seed, _clustered, _deadlines);
+        _instance = _instance with { UseDeadlines = _deadlines };
+        _steps = VrpSolver.Trace(_instance, _algorithm, _polish);
+        _marks = Enumerable.Range(1, _steps.Count - 1).Where(i => _steps[i].Phase != _steps[i - 1].Phase).ToList();
+        _distanceSeries = [new LineSeries("Distance", _steps.Select(s => (double?)s.Distance).ToList(), Palette.Series[0])];
+        _stepLabels = Enumerable.Range(1, _steps.Count).Select(i => i.ToString()).ToList();
+        _compare = AlgorithmOptions.Select(o =>
+        {
+            var routes = VrpSolver.Solve(_instance, o.Value, _polish);
+            var km = VrpSolver.TotalDistance(_instance, routes);
+            return new BarDatum(o.Text, km, $"{Num.F1(km)} km", o.Value == _algorithm, $"{routes.Count} trucks, ${Palette.F(VrpSolver.Cost(_instance, routes), "0")} for the day");
+        }).ToList();
+        _version++;
+        _player.Load(_steps.Count);
+    }
+
+    private void SetAlgorithm(VrpAlgorithm algorithm)
+    {
+        _algorithm = algorithm;
+        Rebuild(newInstance: false);
+    }
+
+    private void SetMap(ChangeEventArgs e)
+    {
+        _clustered = e.Value?.ToString() == "clustered";
+        Rebuild(newInstance: true);
+    }
+
+    private void SetCount(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var count)) return;
+        _count = count;
+        Rebuild(newInstance: true);
+    }
+
+    private void Reroll()
+    {
+        _seed = Random.Shared.Next(1, 100_000);
+        Rebuild(newInstance: true);
+    }
+
+    private void ToggleDeadlines(ChangeEventArgs e)
+    {
+        _deadlines = e.Value is true;
+        Rebuild(newInstance: false);
+    }
+
+    private void TogglePolish(ChangeEventArgs e)
+    {
+        _polish = e.Value is true;
+        Rebuild(newInstance: false);
+    }
+
+    private static string Pct(int value, int min, int max) => Palette.F(100.0 * (value - min) / (max - min), "0.#") + "%";
+
+    private object SceneState()
+    {
+        var step = Step;
+        return new
+        {
+            depot = new[] { _instance.DepotX, _instance.DepotY },
+            customers = _instance.Customers.Select(c => new { id = c.Id, x = c.X, y = c.Y, demand = c.Demand }),
+            routes = step.Routes.Select((r, i) => new { index = i, color = step.Colors.Count > i ? step.Colors[i] : i, stops = r }),
+            focus = step.Focus,
+            link = step.Link,
+            linkOk = step.LinkOk,
+            sweep = step.Sweep,
+            active = step.Active,
+            final = step.Final,
+        };
+    }
+
+    public void Dispose()
+    {
+        _player.Changed -= OnPlayerChanged;
+        _player.Dispose();
+    }
+}

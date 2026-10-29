@@ -1,0 +1,161 @@
+@page "/"
+
+<PageTitle>Halgoworks | Optimization algorithms, step by step</PageTitle>
+
+<section class="hero" aria-labelledby="hero-title">
+    <div class="hero-scene">
+        <Scene3D Kind="hero" Label="Simulated annealing exploring a landscape of possible solutions" />
+    </div>
+    <div class="hero-inner">
+        <div>
+            <h1 id="hero-title" class="sr-only" tabindex="-1">Halgoworks: five optimization problems, solved step by step</h1>
+            <p class="hero-intro">
+                Five classic optimization problems, solved in your browser by real algorithms written in <strong>C#</strong>.
+                Pick one and watch every decision as it's made, with the reasoning spelled out.
+            </p>
+        </div>
+        <nav aria-label="The five problems">
+            <ul class="verbs">
+                @foreach (var problem in Problems.All)
+                {
+                    <li>
+                        <a href="@problem.Slug">
+                            <span class="verb">@problem.Verb.</span>
+                            <span class="verb-note">@problem.Name</span>
+                        </a>
+                    </li>
+                }
+            </ul>
+        </nav>
+        <p class="hero-caption">
+            <span class="dot" aria-hidden="true"></span>Simulated annealing searching for the lowest valley. Uphill steps are accepted less often as it cools;
+            red dots are rejected steps. The pin marks the deepest valley found so far.
+        </p>
+    </div>
+</section>
+
+<div class="page">
+    <section class="section" aria-labelledby="problems-title">
+        <div class="section-head">
+            <h2 class="section-title" id="problems-title">Five problems, one question: what's the best choice?</h2>
+            <p class="section-lede">
+                Each asks for the best option among more possibilities than anyone could ever check. Four of them have no known fast exact method,
+                so the labs show both exact algorithms and the shortcuts used in practice. The fifth is the exception.
+            </p>
+        </div>
+        <ul class="problem-list">
+            @foreach (var problem in Problems.All)
+            {
+                <li class="problem-row">
+                    <ProblemGlyph Slug="@problem.Slug" />
+                    <div>
+                        <h3 class="problem-name"><a href="@problem.Slug">@problem.Name</a></h3>
+                        <p class="problem-desc">@problem.Summary</p>
+                    </div>
+                    <dl class="problem-meta">
+                        <dt>Complexity</dt>
+                        <dd><span class="complexity @(problem.Polynomial ? "easy" : null)">@problem.Complexity</span></dd>
+                        <dt>Used for</dt>
+                        <dd>@string.Join(", ", problem.Uses)</dd>
+                        <dt>Algorithms</dt>
+                        <dd>@problem.Algorithms</dd>
+                    </dl>
+                    <a class="btn" href="@problem.Slug">Open the lab</a>
+                </li>
+            }
+        </ul>
+    </section>
+
+    <section class="section" aria-labelledby="growth-title">
+        <div class="section-head">
+            <h2 class="section-title" id="growth-title">Why checking everything is hopeless</h2>
+            <p class="section-lede">
+                Work needed to guarantee the best answer by brute force, as the problem grows: subsets for knapsack, groupings for bin packing,
+                visiting orders for routing, machine orders for a 5-machine job shop. Max flow is plotted with Edmonds–Karp's
+                polynomial bound instead, and it barely leaves the floor.
+            </p>
+        </div>
+        <div class="panel">
+            <LineChart Series="_growth" XLabels="_sizes" Refs="_growthRefs" XTitle="Items, customers or jobs:" EndLabels="false" Height="340"
+                       YMin="0" YMax="100" YTickFormat="@(v => Scale.Power((int)Math.Round(v)))" YFormat="@Magnitude"
+                       AriaLabel="Brute-force effort by problem size, on a logarithmic scale" />
+        </div>
+    </section>
+
+    <section class="section" aria-labelledby="how-title">
+        <div class="section-head">
+            <h2 class="section-title" id="how-title">How to read a lab</h2>
+            <p class="section-lede">Every lab works the same way, so once you've used one you can read them all.</p>
+        </div>
+        <ol class="steps-list">
+            <li>
+                <div class="n" aria-hidden="true">1</div>
+                <h3>Pick an example</h3>
+                <p>Each lab opens on a hand-picked example. Switch to another one or generate a random instance.</p>
+            </li>
+            <li>
+                <div class="n" aria-hidden="true">2</div>
+                <h3>Choose an algorithm</h3>
+                <p>Exact methods, greedy rules and local search side by side, on the same instance.</p>
+            </li>
+            <li>
+                <div class="n" aria-hidden="true">3</div>
+                <h3>Play or step through</h3>
+                <p>Space plays and pauses, the arrow keys step one decision at a time. Drag the timeline to jump.</p>
+            </li>
+            <li>
+                <div class="n" aria-hidden="true">4</div>
+                <h3>Follow the amber</h3>
+                <p>Amber always marks what the algorithm is looking at right now: in the picture, in the narration and in the pseudo-code.</p>
+            </li>
+        </ol>
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<LineSeries> _growth = [];
+    private IReadOnlyList<string> _sizes = [];
+    private IReadOnlyList<RefLine> _growthRefs =
+    [
+        new("One second at a billion checks per second", 9),
+        new("The age of the universe at that speed", 26.6),
+    ];
+
+    protected override void OnInitialized()
+    {
+        const int max = 20;
+        var sizes = Enumerable.Range(1, max).ToList();
+        _sizes = sizes.Select(n => n.ToString()).ToList();
+
+        double LogFactorial(int n) => Enumerable.Range(2, Math.Max(0, n - 1)).Sum(k => Math.Log10(k));
+
+        // Bell numbers via the Bell triangle; doubles are exact enough for a log-scale plot at n ≤ 20.
+        var bell = new List<double> { 1 };
+        var row = new List<double> { 1 };
+        for (var n = 1; n <= max; n++)
+        {
+            var next = new List<double> { row[^1] };
+            foreach (var v in row) next.Add(next[^1] + v);
+            row = next;
+            bell.Add(row[0]);
+        }
+
+        IReadOnlyList<double?> Series(Func<int, double> log) => sizes.Select(n => (double?)log(n)).ToList();
+
+        _growth =
+        [
+            new LineSeries("Vehicle routing", Series(n => LogFactorial(n)), Palette.Series[0]),
+            new LineSeries("Knapsack", Series(n => n * Math.Log10(2)), Palette.Series[1]),
+            new LineSeries("Job shop, 5 machines", Series(n => 5 * LogFactorial(n)), Palette.Series[2]),
+            new LineSeries("Bin packing", Series(n => Math.Log10(bell[n])), Palette.Series[3]),
+            new LineSeries("Max flow (Edmonds–Karp)", Series(n => Math.Log10(n * Math.Pow(3 * n, 2))), Palette.Series[4]),
+        ];
+    }
+
+    private static string Magnitude(double log)
+    {
+        if (log < 6) return Palette.F(Math.Round(Math.Pow(10, log)), "#,0");
+        var exponent = (int)Math.Floor(log);
+        return $"{Palette.F(Math.Pow(10, log - exponent), "0.0")} × {Scale.Power(exponent)}";
+    }
+}

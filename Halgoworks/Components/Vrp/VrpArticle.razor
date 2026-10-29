@@ -1,0 +1,125 @@
+<ArticleLayout Sections="Sections" Path="routing">
+    <section id="problem">
+        <h2>The problem</h2>
+        <p>
+            A depot has a fleet of identical trucks, each able to carry <i>Q</i> units. A list of customers each need some amount delivered.
+            Every truck leaves the depot, visits some customers, and comes back. Plan the routes so every customer is served exactly once, no truck is
+            overloaded, and the total distance, and with it the fuel bill, is as small as possible. That's the <strong>capacitated vehicle routing problem</strong>.
+        </p>
+        <p>
+            Real fleets add more rules. Customers have delivery windows or deadlines, drivers have shift limits, some trucks are refrigerated, some stops are
+            pickups. Parcel carriers, grocery delivery, waste collection, school buses and field technicians all solve versions of it every day. UPS has said its
+            ORION route optimizer saves on the order of a hundred million miles a year. This lab includes capacity, optional deadlines and fuel cost.
+        </p>
+    </section>
+
+    <section id="model">
+        <h2>Formal model</h2>
+        <p>
+            Number the depot 0 and the customers 1 to <i>n</i>, with demands <i>q<sub>i</sub></i> and distances <i>d<sub>ij</sub></i>.
+            Let <i>x<sub>ij</sub></i> = 1 if some truck drives straight from <i>i</i> to <i>j</i>:
+        </p>
+        <div class="formula" role="math" aria-label="capacitated vehicle routing model">
+            <div class="row"><span>minimize</span><span>Σ<sub><i>i</i>,<i>j</i></sub> <i>d<sub>ij</sub> x<sub>ij</sub></i></span></div>
+            <div class="row"><span>enter once</span><span>Σ<sub><i>i</i></sub> <i>x<sub>ij</sub></i> = 1 for every customer <i>j</i></span></div>
+            <div class="row"><span>leave once</span><span>Σ<sub><i>j</i></sub> <i>x<sub>ij</sub></i> = 1 for every customer <i>i</i></span></div>
+            <div class="row"><span>capacity</span><span>Σ<sub><i>i</i> ∉ <i>S</i>, <i>j</i> ∈ <i>S</i></sub> <i>x<sub>ij</sub></i> ≥ ⌈<i>q</i>(<i>S</i>) ÷ <i>Q</i>⌉ for every group of customers <i>S</i></span></div>
+            <div class="row"><span></span><span><i>x<sub>ij</sub></i> ∈ {0, 1}</span></div>
+        </div>
+        <p>
+            The last family says that a group of customers whose total demand is <i>q</i>(<i>S</i>) must be entered by at least ⌈<i>q</i>(<i>S</i>) ÷ <i>Q</i>⌉ trucks.
+            It also rules out little loops that never touch the depot. There's one such constraint for every subset of customers, exponentially many,
+            so exact solvers add them only when a solution violates one.
+        </p>
+        <p>
+            Deadlines add arrival times. If a truck goes from <i>i</i> to <i>j</i>, its arrival at <i>j</i> is at least the arrival at <i>i</i> plus the
+            service time plus the driving time, and it must not exceed <i>j</i>'s deadline. In this lab, trucks leave at 08:00, drive at 30 km/h and spend
+            5 minutes at each stop.
+        </p>
+    </section>
+
+    <section id="hard">
+        <h2>Why it's hard</h2>
+        <p>
+            With unlimited capacity and a single truck, the problem is the <strong>travelling salesman problem</strong>, already NP-hard. Vehicle routing adds a second
+            hard decision on top: which customers share a truck, which is a bin-packing problem. A single truck visiting 20 customers can do so in
+            20! ÷ 2 ≈ 1.2 × 10<sup>18</sup> different orders, before any choice about splitting customers between trucks.
+        </p>
+        <p>
+            The best exact methods, branch-cut-and-price, can prove optimal routes for a few hundred customers on good days. Real operations with thousands
+            of stops rely on heuristics, and on how quickly they reach "good enough".
+        </p>
+    </section>
+
+    <section id="structures">
+        <h2>Data structures</h2>
+        <ul>
+            <li><strong>Distance matrix.</strong> All algorithms ask "how far from <i>i</i> to <i>j</i>?" constantly. Precomputing an (<i>n</i> + 1) × (<i>n</i> + 1) table makes every question <i>O</i>(1); road networks fill it with shortest-path queries instead of straight lines.</li>
+            <li><strong>Savings list.</strong> Clarke–Wright computes all <i>n</i>(<i>n</i> − 1) ÷ 2 savings and sorts them, which costs <i>O</i>(<i>n</i>² log <i>n</i>) and dominates its running time. A max-heap works too.</li>
+            <li><strong>Route ends.</strong> Savings can only join routes at their ends. Storing each route as a deque, or a doubly linked list with head and tail pointers, plus a "which route is this customer on" array makes the check and the merge cheap. It's the same bookkeeping as a union-find with ordered sets.</li>
+            <li><strong>Polar angles.</strong> Sweep sorts customers by <code>atan2(y − y₀, x − x₀)</code> around the depot, then scans that circular list once.</li>
+            <li><strong>Nearest-neighbor queries.</strong> For large maps, a k-d tree or a grid of buckets answers "closest unserved customer" without scanning everyone.</li>
+            <li><strong>Routes as arrays.</strong> 2-opt reverses a slice of the route, so a plain array with in-place reversal is all it needs.</li>
+        </ul>
+    </section>
+
+    <section id="algorithms">
+        <h2>The algorithms</h2>
+        <h3>Clarke–Wright savings</h3>
+        <p>
+            Start with the worst sensible plan, one truck per customer, then repeatedly merge two routes. Joining a route ending at <i>i</i> with one starting at
+            <i>j</i> saves the two trips through the depot and adds the link between them: <i>s</i>(<i>i</i>, <i>j</i>) = <i>d</i><sub>0<i>i</i></sub> + <i>d</i><sub>0<i>j</i></sub> − <i>d<sub>ij</sub></i>.
+            Work through the pairs from the largest saving down and merge whenever the result is still feasible. Customers far from the depot and close to each
+            other produce the largest savings, so routes grow outward first.
+        </p>
+        <h3>Sweep</h3>
+        <p>
+            Picture a radar beam rotating around the depot. Customers join the current truck in the order the beam reaches them, and when the next one won't fit,
+            the truck is closed and a new one starts. Because each truck gets a wedge of the map, routes rarely cross each other. Inside a wedge, the lab inserts each
+            customer where it adds the least distance.
+        </p>
+        <h3>Nearest neighbor</h3>
+        <p>
+            The most human strategy: from wherever you are, drive to the closest customer you can still serve, and go home when nothing fits. It's fast and
+            reasonable early on, but the last customers of each route are often far-flung leftovers, which shows in long return trips.
+        </p>
+        <h3>2-opt polishing</h3>
+        <p>
+            A route that crosses itself is never optimal: uncrossing two edges always makes it shorter. 2-opt tries every pair of edges (<i>a</i>, <i>b</i>) and
+            (<i>c</i>, <i>d</i>) in a route and replaces them with (<i>a</i>, <i>c</i>) and (<i>b</i>, <i>d</i>) when that's shorter, reversing the stops in between.
+            Repeat until nothing improves. It's the simplest local search for routing and fixes most of what construction heuristics leave behind.
+        </p>
+    </section>
+
+    <section id="beyond">
+        <h2>Beyond this lab</h2>
+        <ul>
+            <li><strong>Metaheuristics.</strong> Tabu search, simulated annealing and especially large neighborhood search (destroy part of the solution, rebuild it better) power most commercial routing engines. Hybrid genetic search by Vidal and colleagues is among the strongest published methods.</li>
+            <li><strong>Moves between routes.</strong> Relocate a customer to another truck, swap customers between trucks, or exchange the tails of two routes (2-opt*). They fix what intra-route 2-opt can't.</li>
+            <li><strong>Variants.</strong> Time windows (VRPTW), several depots, pickup and delivery, mixed fleets, electric trucks that need charging stops, and dynamic routing, where orders arrive during the day.</li>
+            <li><strong>Libraries.</strong> Google OR-Tools, VROOM and PyVRP solve real instances with these techniques.</li>
+        </ul>
+    </section>
+
+    <section id="history">
+        <h2>A little history</h2>
+        <p>
+            George Dantzig and John Ramser introduced the problem in 1959 as "The Truck Dispatching Problem": delivering gasoline from a terminal to service
+            stations. Geoff Clarke and John Wright published the savings algorithm in 1964, and it remains a standard baseline. G. A. Croes described the 2-opt move
+            for the travelling salesman problem in 1958, and Billy Gillett and Leland Miller's sweep algorithm appeared in 1974.
+        </p>
+    </section>
+</ArticleLayout>
+
+@code {
+    private static readonly IReadOnlyList<(string, string)> Sections =
+    [
+        ("problem", "The problem"),
+        ("model", "Formal model"),
+        ("hard", "Why it's hard"),
+        ("structures", "Data structures"),
+        ("algorithms", "The algorithms"),
+        ("beyond", "Beyond this lab"),
+        ("history", "A little history"),
+    ];
+}

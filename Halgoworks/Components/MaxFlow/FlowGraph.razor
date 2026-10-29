@@ -1,0 +1,270 @@
+@using Halgoworks.Core.MaxFlow
+
+<svg class="viz" viewBox="0 0 @W @H" role="img" aria-label="@($"Flow network, total flow {Step.Total}")">
+    <defs>
+        <marker id="mf-head" viewBox="0 0 10 10" refX="7" refY="5" markerUnits="userSpaceOnUse" markerWidth="13" markerHeight="13" orient="auto">
+            <path d="M0 0L10 5L0 10z" fill="@Palette.Line" />
+        </marker>
+        <marker id="mf-head-flow" viewBox="0 0 10 10" refX="7" refY="5" markerUnits="userSpaceOnUse" markerWidth="13" markerHeight="13" orient="auto">
+            <path d="M0 0L10 5L0 10z" fill="@Palette.Series[0]" />
+        </marker>
+        <marker id="mf-head-signal" viewBox="0 0 10 10" refX="7" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto">
+            <path d="M0 0L10 5L0 10z" fill="@Palette.Signal" />
+        </marker>
+        <marker id="mf-head-tree" viewBox="0 0 10 10" refX="7" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto">
+            <path d="M0 0L10 5L0 10z" fill="@Palette.Text1" />
+        </marker>
+        <marker id="mf-head-fwd" viewBox="0 0 10 10" refX="7" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto">
+            <path d="M0 0L10 5L0 10z" fill="@Palette.Series[0]" />
+        </marker>
+        <marker id="mf-head-back" viewBox="0 0 10 10" refX="7" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto">
+            <path d="M0 0L10 5L0 10z" fill="@Palette.Series[1]" />
+        </marker>
+    </defs>
+
+    @if (!Residual)
+    {
+        @foreach (var e in Network.Edges)
+        {
+            var g = Geo(e);
+            var width = 6 + 12.0 * e.Capacity / _maxCap;
+            var flow = Step.Flow.Count > e.Id ? Step.Flow[e.Id] : 0;
+            var path = Trim(g, R + 2, R + 10);
+            <g>
+                <path d="@path" fill="none" stroke="@Palette.Line" stroke-width="@F(width + 2)" stroke-linecap="round" />
+                <path d="@path" fill="none" stroke="#172a47" stroke-width="@F(width)" stroke-linecap="round" marker-end="url(#mf-head)" />
+                @if (flow > 0)
+                {
+                    <path d="@path" fill="none" stroke="@Palette.Series[0]" stroke-width="@F(Math.Max(2.5, width * flow / e.Capacity))" stroke-linecap="round" />
+                    <path d="@path" fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="@F(Math.Max(1.5, width * flow / e.Capacity * 0.4))"
+                          stroke-dasharray="2 10" stroke-linecap="round" class="flowing" />
+                }
+            </g>
+        }
+    }
+    else
+    {
+        @foreach (var e in Network.Edges)
+        {
+            var g = Geo(e);
+            var flow = Step.Flow.Count > e.Id ? Step.Flow[e.Id] : 0;
+            var spare = e.Capacity - flow;
+            if (spare > 0)
+            {
+                var fwd = Offset(g, 7);
+                var mid = Mid(fwd);
+                var n = Normal(g);
+                <g>
+                    <path d="@Trim(fwd, R + 2, R + 9)" fill="none" stroke="@Palette.Series[0]" stroke-width="2.2" marker-end="url(#mf-head-fwd)" />
+                    <text x="@F(mid.X + n.X * 13)" y="@F(mid.Y + n.Y * 13)" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600" class="t-1 tabular">@spare</text>
+                </g>
+            }
+            if (flow > 0)
+            {
+                var back = Reverse(Offset(g, -7));
+                var mid = Mid(back);
+                var n = Normal(g);
+                <g>
+                    <path d="@Trim(back, R + 2, R + 9)" fill="none" stroke="@Palette.Series[1]" stroke-width="2.2" marker-end="url(#mf-head-back)" />
+                    <text x="@F(mid.X - n.X * 13)" y="@F(mid.Y - n.Y * 13)" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600" class="t-1 tabular">@flow</text>
+                </g>
+            }
+        }
+    }
+
+    @foreach (var arc in Step.Tree.Where(a => !Step.Path.Contains(a)))
+    {
+        <path d="@Trim(ArcGeo(arc), R + 3, R + 9)" fill="none" stroke="@Palette.Text1" stroke-opacity="0.75" stroke-width="1.8" marker-end="url(#mf-head-tree)" />
+    }
+
+    @if (Step.Path.Count > 0)
+    {
+        var full = string.Join(" ", Step.Path.Select((a, i) => Through(ArcGeo(a), i == 0)));
+        <path d="@full" fill="none" stroke="@Palette.Signal" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85" class="glow" />
+        @if (!Reduced)
+        {
+            <circle r="6" fill="#fff">
+                <animateMotion dur="@($"{Palette.F(0.6 + Step.Path.Count * 0.45, "0.##")}s")" repeatCount="indefinite" path="@full" />
+            </circle>
+        }
+    }
+
+    @foreach (var arc in Step.Scanned)
+    {
+        <path d="@Trim(ArcGeo(arc), R + 3, R + 9)" fill="none" stroke="@Palette.Signal" stroke-width="2.6" marker-end="url(#mf-head-signal)" class="glow" />
+    }
+
+    @if (Step.SourceSide is { } side)
+    {
+        @foreach (var e in Network.Edges.Where(e => side[e.From] && !side[e.To]))
+        {
+            var g = Geo(e);
+            var p = At(g, 0.36);
+            var n = Normal(g);
+            <line x1="@F(p.X - n.X * 22)" y1="@F(p.Y - n.Y * 22)" x2="@F(p.X + n.X * 22)" y2="@F(p.Y + n.Y * 22)" stroke="@Palette.Signal" stroke-width="3.5" stroke-linecap="round" class="glow" />
+        }
+    }
+
+    @if (!Residual)
+    {
+        @foreach (var e in Network.Edges)
+        {
+            var g = Geo(e);
+            var mid = Mid(g);
+            var flow = Step.Flow.Count > e.Id ? Step.Flow[e.Id] : 0;
+            var bottleneck = Step.Bottleneck is { } b && b.Edge == e.Id;
+            var full = flow == e.Capacity;
+            var label = $"{flow}/{e.Capacity}";
+            var w = 14 + label.Length * 7.4;
+            <g>
+                <rect x="@F(mid.X - w / 2)" y="@F(mid.Y - 11)" width="@F(w)" height="22" rx="11"
+                      fill="@(bottleneck ? Palette.Signal : Palette.Ink0)" stroke="@(bottleneck ? Palette.Signal : full ? Palette.Text2 : Palette.Line)" stroke-width="1.2" />
+                <text x="@F(mid.X)" y="@F(mid.Y)" text-anchor="middle" dominant-baseline="central" font-size="12.5" class="tabular">
+                    <tspan font-weight="700" fill="@(bottleneck ? Palette.Ink0 : Palette.Text1)">@flow</tspan><tspan fill="@(bottleneck ? Palette.Ink0 : Palette.Text3)">/@e.Capacity</tspan>
+                </text>
+            </g>
+        }
+    }
+
+    @foreach (var node in Network.Nodes)
+    {
+        var p = P(node.Id);
+        var state = Step.Nodes.Count > node.Id ? Step.Nodes[node.Id] : NodeState.Idle;
+        var terminal = node.Id == Network.Source || node.Id == Network.Sink;
+        var inside = node.Label.Length <= 3;
+        var (fill, stroke, strokeWidth, dash) = NodeStyle(node.Id, state);
+        <g>
+            @if (terminal)
+            {
+                <circle cx="@F(p.X)" cy="@F(p.Y)" r="@(R + 5)" fill="none" stroke="@stroke" stroke-width="1" opacity="0.6" />
+            }
+            <circle cx="@F(p.X)" cy="@F(p.Y)" r="@R" fill="@fill" stroke="@stroke" stroke-width="@strokeWidth" stroke-dasharray="@dash"
+                    class="@(state == NodeState.Current ? "glow" : null)" />
+            @if (inside)
+            {
+                <g><text x="@F(p.X)" y="@F(p.Y)" text-anchor="middle" dominant-baseline="central" font-size="@(terminal ? 17 : 15)" font-weight="700" class="t-1">@node.Label</text></g>
+            }
+            else
+            {
+                <g>
+                    <text x="@F(p.X)" y="@F(p.Y)" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="700" class="t-1">@Initials(node.Label)</text>
+                    <text x="@F(p.X)" y="@F(p.Y + (node.Y > 0.6 ? R + 16 : -R - 10))" text-anchor="middle" font-size="13" class="t-2">@node.Label</text>
+                </g>
+            }
+            @if (Step.Level is { } level && level[node.Id] >= 0)
+            {
+                <g>
+                    <circle cx="@F(p.X + R * 0.78)" cy="@F(p.Y - R * 0.78)" r="10" fill="@Palette.Ink0" stroke="@Palette.Text2" stroke-width="1" />
+                    <text x="@F(p.X + R * 0.78)" y="@F(p.Y - R * 0.78)" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="700" class="t-1">@level[node.Id]</text>
+                </g>
+            }
+        </g>
+    }
+</svg>
+
+@code {
+    [Parameter, EditorRequired] public FlowNetwork Network { get; set; } = default!;
+    [Parameter, EditorRequired] public MaxFlowStep Step { get; set; } = default!;
+    [Parameter] public bool Residual { get; set; }
+    [Parameter] public bool Reduced { get; set; }
+
+    private const int W = 1000;
+    private const int H = 540;
+    private const int R = 24;
+    private int _maxCap = 1;
+    private HashSet<(int, int)> _pairs = [];
+
+    private readonly record struct Pt(double X, double Y);
+
+    /// <summary>Start, control and end points of an edge drawn from center to center.</summary>
+    private readonly record struct Geometry(Pt A, Pt C, Pt B);
+
+    protected override void OnParametersSet()
+    {
+        _maxCap = Math.Max(1, Network.Edges.Max(e => e.Capacity));
+        _pairs = Network.Edges.Select(e => (e.From, e.To)).ToHashSet();
+    }
+
+    private Pt P(int node) => new(70 + Network.Nodes[node].X * 860, 56 + Network.Nodes[node].Y * 428);
+
+    // Antiparallel edges bow apart; everything else is straight.
+    private Geometry Geo(FlowEdge e)
+    {
+        var a = P(e.From);
+        var b = P(e.To);
+        var mid = new Pt((a.X + b.X) / 2, (a.Y + b.Y) / 2);
+        if (!_pairs.Contains((e.To, e.From))) return new Geometry(a, mid, b);
+        var n = NormalOf(a, b);
+        return new Geometry(a, new Pt(mid.X + n.X * 34, mid.Y + n.Y * 34), b);
+    }
+
+    private Geometry ArcGeo(Arc arc)
+    {
+        var g = Geo(Network.Edges[arc.Edge]);
+        return arc.Forward ? g : Reverse(g);
+    }
+
+    private static Geometry Reverse(Geometry g) => new(g.B, g.C, g.A);
+
+    private static Pt NormalOf(Pt a, Pt b)
+    {
+        var dx = b.X - a.X;
+        var dy = b.Y - a.Y;
+        var len = Math.Max(1e-6, Math.Sqrt(dx * dx + dy * dy));
+        return new Pt(-dy / len, dx / len);
+    }
+
+    private static Pt Normal(Geometry g) => NormalOf(g.A, g.B);
+
+    private static Geometry Offset(Geometry g, double d)
+    {
+        var n = Normal(g);
+        return new Geometry(new Pt(g.A.X + n.X * d, g.A.Y + n.Y * d), new Pt(g.C.X + n.X * d, g.C.Y + n.Y * d), new Pt(g.B.X + n.X * d, g.B.Y + n.Y * d));
+    }
+
+    private static Pt At(Geometry g, double t)
+    {
+        var u = 1 - t;
+        return new Pt(u * u * g.A.X + 2 * u * t * g.C.X + t * t * g.B.X, u * u * g.A.Y + 2 * u * t * g.C.Y + t * t * g.B.Y);
+    }
+
+    private static Pt Mid(Geometry g) => At(g, 0.5);
+
+    private static Pt Toward(Pt from, Pt to, double d)
+    {
+        var dx = to.X - from.X;
+        var dy = to.Y - from.Y;
+        var len = Math.Max(1e-6, Math.Sqrt(dx * dx + dy * dy));
+        return new Pt(from.X + dx / len * d, from.Y + dy / len * d);
+    }
+
+    // The curve shortened at both ends so it starts and stops at the node circles.
+    private static string Trim(Geometry g, double start, double end)
+    {
+        var a = Toward(g.A, g.C, start);
+        var b = Toward(g.B, g.C, end);
+        return $"M{F(a.X)} {F(a.Y)}Q{F(g.C.X)} {F(g.C.Y)} {F(b.X)} {F(b.Y)}";
+    }
+
+    // Center-to-center segment, used to chain the arcs of a path into one continuous line.
+    private static string Through(Geometry g, bool first) =>
+        (first ? $"M{F(g.A.X)} {F(g.A.Y)}" : "") + $"Q{F(g.C.X)} {F(g.C.Y)} {F(g.B.X)} {F(g.B.Y)}";
+
+    private (string Fill, string Stroke, double Width, string? Dash) NodeStyle(int node, NodeState state)
+    {
+        if (Step.SourceSide is { } side)
+            return side[node] ? ("#1d3a63", Palette.Series[0], 2, null) : ("#3a2420", Palette.Series[1], 2, null);
+        return state switch
+        {
+            NodeState.Current => (Palette.Ink2, Palette.Signal, 3, null),
+            NodeState.Frontier => (Palette.Ink2, Palette.Text1, 1.8, "4 3"),
+            NodeState.Visited => ("#1d3a63", Palette.Series[0], 2, null),
+            _ => (Palette.Ink2, Palette.Line, 1.5, null),
+        };
+    }
+
+    private static string Initials(string label) =>
+        string.Concat(label.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(w => char.IsDigit(w[0]) || w.Length == 1 ? w : w[..1]));
+
+    private static string F(double v) => Palette.F(v, "0.#");
+}

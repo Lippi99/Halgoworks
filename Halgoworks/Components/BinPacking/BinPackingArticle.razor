@@ -1,0 +1,130 @@
+<ArticleLayout Sections="Sections" Path="bin-packing">
+    <section id="problem">
+        <h2>The problem</h2>
+        <p>
+            You have items of different sizes and an unlimited supply of identical bins, each with capacity <i>C</i>.
+            Put every item in some bin, never overfilling one, and use as few bins as possible.
+        </p>
+        <p>
+            Replace bins with servers and items with virtual machines, and it's how a cloud provider decides how many hosts to keep running.
+            With trucks and parcels it's load planning; with disks and files it's backup scheduling; with rolls of steel or paper and the lengths
+            customers ordered, it becomes the <strong>cutting-stock problem</strong>. Memory allocators face the same question every time a program asks for a block.
+        </p>
+    </section>
+
+    <section id="model">
+        <h2>Formal model</h2>
+        <p>
+            Let <i>x<sub>ij</sub></i> = 1 if item <i>i</i> goes into bin <i>j</i>, and <i>y<sub>j</sub></i> = 1 if bin <i>j</i> is used at all.
+            With item sizes <i>s<sub>i</sub></i>:
+        </p>
+        <div class="formula" role="math" aria-label="minimize the number of bins used">
+            <div class="row"><span>minimize</span><span>Σ<sub><i>j</i></sub> <i>y<sub>j</sub></i></span></div>
+            <div class="row"><span>each item once</span><span>Σ<sub><i>j</i></sub> <i>x<sub>ij</sub></i> = 1 for every item <i>i</i></span></div>
+            <div class="row"><span>no overflow</span><span>Σ<sub><i>i</i></sub> <i>s<sub>i</sub> x<sub>ij</sub></i> ≤ <i>C</i> · <i>y<sub>j</sub></i> for every bin <i>j</i></span></div>
+            <div class="row"><span></span><span><i>x<sub>ij</sub></i>, <i>y<sub>j</sub></i> ∈ {0, 1}</span></div>
+        </div>
+        <p>
+            The simplest lower bound falls straight out of the capacity constraint. Even with zero waste, the bins must hold the total size, so
+            any packing needs at least <strong>L₁ = ⌈Σ <i>s<sub>i</sub></i> ÷ <i>C</i>⌉</strong> bins. The lab compares every rule against it.
+        </p>
+    </section>
+
+    <section id="hard">
+        <h2>Why it's hard</h2>
+        <p>
+            Just deciding whether two bins are enough is the <strong>partition problem</strong>: can these numbers be split into two halves of equal sum?
+            That's NP-complete, so bin packing is NP-hard. It also means that, unless P = NP, no fast algorithm can guarantee better than 3/2 times
+            the optimum on every input: on an instance that fits in two bins it would have to find that two-bin packing, which answers the partition question.
+        </p>
+        <p>
+            The number of ways to split <i>n</i> items into groups is the Bell number <i>B<sub>n</sub></i>. Ten items can be grouped 115,975 ways;
+            twenty items, about 51.7 trillion. Exact solvers survive by pruning: any partial packing whose bins plus lower bound already match the best
+            known answer can be dropped.
+        </p>
+    </section>
+
+    <section id="structures">
+        <h2>Data structures</h2>
+        <h3>A list of free capacities</h3>
+        <p>
+            Every rule here keeps one number per open bin, its free space, and differs only in how it searches that list. Written as plain loops, as in the
+            lab's pseudo-code, first, best and worst fit cost <i>O</i>(<i>n</i>) per item and <i>O</i>(<i>n</i>²) overall.
+        </p>
+        <h3>Trees that make it O(n log n)</h3>
+        <ul>
+            <li><strong>First fit</strong> stores free space in a tournament tree (a segment tree of maxima). To place an item of size <i>s</i>, walk down from the root, always turning left when the left subtree's maximum is at least <i>s</i>. That finds the leftmost bin with room in <i>O</i>(log <i>n</i>).</li>
+            <li><strong>Best fit</strong> keeps the free spaces in a balanced binary search tree, or a sorted multiset. The tightest bin that fits is the smallest key that's at least <i>s</i>: one lower-bound query.</li>
+            <li><strong>Worst fit</strong> only needs the roomiest bin: a max-heap.</li>
+            <li><strong>Next fit</strong> needs nothing but a pointer to the one open bin, which makes it the only rule here that runs in true constant memory.</li>
+        </ul>
+        <h3>Search trees for the exact answer</h3>
+        <p>
+            The optimum shown in the comparison chart comes from a depth-first branch and bound. It places items largest first, tries each open bin
+            and then a new one, skips bins whose free space equals one already tried (they're interchangeable), and prunes any branch where
+            the bins used so far plus a lower bound on the rest can't beat the best packing found.
+        </p>
+    </section>
+
+    <section id="algorithms">
+        <h2>The algorithms</h2>
+        <p>
+            The six rules split into <strong>online</strong> rules, which place items in arrival order and never move them, and <strong>offline</strong>
+            rules, which may sort the items first. Their worst-case guarantees are some of the best-known results in approximation algorithms:
+        </p>
+        <table class="compare-table">
+            <thead>
+                <tr><th>Rule</th><th>Idea</th><th>Worst case</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Next fit</td><td>Only the newest bin is open</td><td>At most 2·OPT − 1 bins</td></tr>
+                <tr><td>First fit</td><td>Leftmost bin that fits</td><td>At most ⌊1.7·OPT⌋ bins</td></tr>
+                <tr><td>Best fit</td><td>Tightest bin that fits</td><td>At most ⌊1.7·OPT⌋ bins</td></tr>
+                <tr><td>Worst fit</td><td>Roomiest bin that fits</td><td>About 2·OPT, like next fit</td></tr>
+                <tr><td>First fit decreasing</td><td>Sort largest first, then first fit</td><td>At most 11/9·OPT + 6/9 bins</td></tr>
+                <tr><td>Best fit decreasing</td><td>Sort largest first, then best fit</td><td>Same 11/9 ratio as FFD</td></tr>
+            </tbody>
+        </table>
+        <p>
+            Why does next fit never use more than about twice the optimum? Any two consecutive bins it closes together hold more than <i>C</i>,
+            otherwise the second bin's first item would have fit in the first. So at most half the space is wasted.
+        </p>
+        <p>
+            Why does sorting help so much? Large items, the ones bigger than half a bin, can never share a bin with each other, so they
+            force a bin each no matter what. Placing them first lets small items fill the gaps they leave. Placing small items first, as in the
+            "Small items first" example, packs them tightly together and leaves the large ones nowhere to go.
+        </p>
+    </section>
+
+    <section id="beyond">
+        <h2>Beyond this lab</h2>
+        <ul>
+            <li><strong>Column generation.</strong> The strongest exact solvers don't assign items to bins directly. They choose among <em>patterns</em>, sets of items that fit in one bin, and generate good patterns on demand by solving a knapsack problem. This is the Gilmore–Gomory approach from cutting stock, wrapped in branch and price.</li>
+            <li><strong>Approximation schemes.</strong> For any ε &gt; 0 there's a polynomial algorithm using at most (1 + ε)·OPT + 1 bins, by rounding item sizes into a few classes and solving the rounded problem exactly.</li>
+            <li><strong>Variants.</strong> Two- and three-dimensional packing (pallets, shipping containers), vector packing where each item has several dimensions (a virtual machine's CPU <em>and</em> memory), online packing where items arrive one by one, and packing with conflicts between items.</li>
+        </ul>
+    </section>
+
+    <section id="history">
+        <h2>A little history</h2>
+        <p>
+            Leonid Kantorovich wrote about cutting problems in 1939, and Paul Gilmore and Ralph Gomory's 1961 work on cutting stock introduced the
+            column generation still used by exact solvers. Bin packing in its modern form arrived in the early 1970s: David Johnson's 1973 PhD thesis
+            analyzed first fit, best fit and their sorted versions and helped start the field of approximation algorithms. The tight bound for first fit
+            decreasing, 11/9·OPT + 6/9, was only settled by György Dósa in 2007, and the exact ⌊1.7·OPT⌋ bound for first fit by Dósa and Jiří Sgall in 2013.
+        </p>
+    </section>
+</ArticleLayout>
+
+@code {
+    private static readonly IReadOnlyList<(string, string)> Sections =
+    [
+        ("problem", "The problem"),
+        ("model", "Formal model"),
+        ("hard", "Why it's hard"),
+        ("structures", "Data structures"),
+        ("algorithms", "The algorithms"),
+        ("beyond", "Beyond this lab"),
+        ("history", "A little history"),
+    ];
+}

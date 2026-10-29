@@ -1,0 +1,47 @@
+@using Halgoworks.Core.Vrp
+
+<div class="routes">
+    @if (Step.Pending.Count > 0 && Step.Routes.Count == 0)
+    {
+        <p class="muted">No trucks have left yet. @Step.Pending.Count customers waiting.</p>
+    }
+    @foreach (var r in Enumerable.Range(0, Step.Routes.Count).OrderBy(i => Step.Colors.Count > i ? Step.Colors[i] : i))
+    {
+        var route = Step.Routes[r];
+        var slot = Step.Colors.Count > r ? Step.Colors[r] : r;
+        if (slot < 0) continue;
+        var stats = VrpSolver.Evaluate(Instance, route);
+        var share = (double)stats.Load / Instance.Capacity;
+        <div class="route @(Step.Active == r ? "active" : null)">
+            <div class="route-head">
+                <span class="swatch" style="background: @Palette.Slot(slot)"></span>
+                <strong>Truck @(slot + 1)</strong>
+                <span class="muted num">@Num.F1(stats.Distance) km@(Instance.UseDeadlines ? $", back {VrpInstance.Clock(stats.Duration)}" : "")</span>
+            </div>
+            <div class="route-stops">
+                <span class="stop depot">Depot</span>
+                @for (var i = 0; i < route.Length; i++)
+                {
+                    var c = route[i];
+                    var late = Instance.UseDeadlines && stats.Arrivals[i] > Instance[c].Deadline;
+                    <span class="stop @(Step.Focus.Contains(c) ? "focus" : null) @(late ? "late" : null)"
+                          title="@(Instance.UseDeadlines ? $"Arrives {VrpInstance.Clock(stats.Arrivals[i])}, deadline {VrpInstance.Clock(Instance[c].Deadline)}" : $"Demand {Instance[c].Demand}")">C@(c)</span>
+                }
+                <span class="stop depot">Depot</span>
+            </div>
+            <div class="route-load" title="@($"Load {stats.Load} of {Instance.Capacity}")">
+                <span style="width: @Palette.F(Math.Min(1, share) * 100, "0.#")%; background: @Palette.Slot(slot)"></span>
+            </div>
+            <div class="route-meta muted num">Load @stats.Load / @Instance.Capacity</div>
+        </div>
+    }
+    @if (Step.Routes.Any(r => r.Length < 2) && Step.Colors.Any(c => c < 0))
+    {
+        <p class="muted" style="font-size: var(--t-xs)">@Step.Colors.Count(c => c < 0) single-stop routes not shown; they're drawn as thin gray spokes on the map.</p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public VrpInstance Instance { get; set; } = default!;
+    [Parameter, EditorRequired] public VrpStep Step { get; set; } = default!;
+}

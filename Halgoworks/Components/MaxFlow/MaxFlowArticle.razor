@@ -1,0 +1,122 @@
+<ArticleLayout Sections="Sections" Path="max-flow">
+    <section id="problem">
+        <h2>The problem</h2>
+        <p>
+            A network of pipes, cables or roads connects a <strong>source</strong> <i>s</i> to a <strong>sink</strong> <i>t</i>. Every link has a
+            capacity: how much can pass through it per unit of time. How much can you send from <i>s</i> to <i>t</i> in total, and along which links?
+        </p>
+        <p>
+            Bandwidth between two data centers, water from a reservoir to a city, goods from factories to a port: all are flow problems.
+            The surprise is how many problems that don't look like pipes turn out to be max flow in disguise: assigning workers to jobs (bipartite matching),
+            separating an object from the background of a photo (image segmentation by minimum cut), choosing profitable projects with prerequisites,
+            or deciding whether a sports team can still mathematically win its league.
+        </p>
+    </section>
+
+    <section id="model">
+        <h2>Formal model</h2>
+        <p>Give every edge (<i>u</i>, <i>v</i>) a flow value <i>f</i>(<i>u</i>, <i>v</i>). A flow is valid when it respects two rules:</p>
+        <div class="formula" role="math" aria-label="capacity and conservation constraints">
+            <div class="row"><span>maximize</span><span>|<i>f</i>| = Σ<sub><i>v</i></sub> <i>f</i>(<i>s</i>, <i>v</i>) − Σ<sub><i>v</i></sub> <i>f</i>(<i>v</i>, <i>s</i>)</span></div>
+            <div class="row"><span>capacity</span><span>0 ≤ <i>f</i>(<i>u</i>, <i>v</i>) ≤ <i>c</i>(<i>u</i>, <i>v</i>) for every edge</span></div>
+            <div class="row"><span>conservation</span><span>Σ<sub><i>u</i></sub> <i>f</i>(<i>u</i>, <i>v</i>) = Σ<sub><i>w</i></sub> <i>f</i>(<i>v</i>, <i>w</i>) for every node <i>v</i> other than <i>s</i> and <i>t</i></span></div>
+        </div>
+        <p>
+            A <strong>cut</strong> splits the nodes into a side <i>S</i> containing <i>s</i> and a side containing <i>t</i>. Everything that reaches <i>t</i>
+            must cross from <i>S</i> to the other side, so no flow can exceed the total capacity of the edges leaving <i>S</i>. The
+            <strong>max-flow min-cut theorem</strong> says the bound is tight: the maximum flow equals the capacity of the smallest cut. In the lab, the last
+            step shows that cut. It's the set of nodes the final search could still reach, and every edge leaving it is full.
+        </p>
+    </section>
+
+    <section id="hard">
+        <h2>Why this one is easy</h2>
+        <p>
+            Unlike the other four problems in this lab, maximum flow is solvable in <strong>polynomial time</strong>. It is a linear program, and a
+            special one: when all capacities are integers there is always a maximum flow that uses whole numbers on every edge (the integrality theorem).
+            That's what makes matching and assignment problems easy to solve through flows.
+        </p>
+        <p>
+            Notice the contrast. Knapsack, bin packing, scheduling and routing all hide an "all or nothing" decision: an item is packed or not, a job goes
+            first or second. Flow can be split freely and still come out whole, and that difference is the boundary between easy and hard here.
+        </p>
+    </section>
+
+    <section id="structures">
+        <h2>Data structures</h2>
+        <h3>The residual graph</h3>
+        <p>
+            Every algorithm here works on the <strong>residual graph</strong>. Each edge (<i>u</i>, <i>v</i>) with capacity <i>c</i> and flow <i>f</i>
+            becomes two arcs: a forward arc <i>u</i> → <i>v</i> with <i>c</i> − <i>f</i> spare, and a backward arc <i>v</i> → <i>u</i> that can carry up to
+            <i>f</i>. Pushing along a backward arc means cancelling flow sent earlier, which lets the algorithm change its mind. Switch the lab's view to
+            "Residual graph" to see both kinds of arc.
+        </p>
+        <p>
+            In code, edges usually live in one array in pairs: edge 2<i>k</i> and its reverse 2<i>k</i> + 1. The partner of edge <i>e</i> is then <code>e ^ 1</code>,
+            and pushing <i>b</i> units is two array updates. Each node keeps an adjacency list of edge indices.
+        </p>
+        <h3>Queue, stack and levels</h3>
+        <ul>
+            <li><strong>Edmonds–Karp</strong> searches with a FIFO queue (breadth-first), plus a parent array that records how each node was reached, so the path can be rebuilt backwards from <i>t</i>.</li>
+            <li><strong>Ford–Fulkerson</strong> here uses a stack (depth-first). The stack itself <em>is</em> the current path.</li>
+            <li><strong>Dinic</strong> keeps a level array from its breadth-first search and a "current arc" pointer per node. A pointer only moves forward, so an arc that leads to a dead end is never retried in the same phase. That's the trick behind its running time.</li>
+        </ul>
+    </section>
+
+    <section id="algorithms">
+        <h2>The algorithms</h2>
+        <p>
+            All three follow the <strong>augmenting path</strong> idea of Ford and Fulkerson: while there is a path from <i>s</i> to <i>t</i> with spare
+            capacity in the residual graph, push the bottleneck amount along it. When no path is left, the flow is maximum. They differ in which path they pick.
+        </p>
+        <table class="compare-table">
+            <thead>
+                <tr><th>Algorithm</th><th>Which path</th><th>Time</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Ford–Fulkerson</td><td>Any path; here the first one depth-first search finds</td><td><i>O</i>(<i>E</i> · <i>f</i>*) for integer capacities</td></tr>
+                <tr><td>Edmonds–Karp</td><td>A shortest path (fewest edges), by breadth-first search</td><td><i>O</i>(<i>V</i> · <i>E</i>²)</td></tr>
+                <tr><td>Dinic</td><td>All shortest paths at once, phase by phase</td><td><i>O</i>(<i>V</i>² · <i>E</i>)</td></tr>
+                <tr><td>Push–relabel</td><td>No paths: nodes push excess downhill</td><td><i>O</i>(<i>V</i>³) or better</td></tr>
+            </tbody>
+        </table>
+        <p>
+            Plain Ford–Fulkerson depends on the size of the answer <i>f</i>*. On the classic four-node example with capacities of a million, an unlucky
+            choice of paths makes two million pushes of one unit each. With irrational capacities it may never stop at all. Edmonds and Karp's fix is simply to use breadth-first search:
+            shortest paths only get longer as the algorithm runs, which caps the number of rounds no matter how big the capacities are.
+        </p>
+    </section>
+
+    <section id="beyond">
+        <h2>Beyond this lab</h2>
+        <ul>
+            <li><strong>Minimum-cost flow.</strong> Edges also have a price per unit; send a required amount as cheaply as possible. It covers transportation and assignment problems.</li>
+            <li><strong>Multi-commodity flow.</strong> Several source and sink pairs share the same capacities. With integer flows required, it becomes NP-hard.</li>
+            <li><strong>Faster algorithms.</strong> Push–relabel (Goldberg and Tarjan) is the workhorse in practice. In 2022 Chen, Kyng, Liu, Peng, Probst Gutenberg and Sachdeva announced an algorithm running in almost-linear time, <i>m</i><sup>1+o(1)</sup>.</li>
+        </ul>
+    </section>
+
+    <section id="history">
+        <h2>A little history</h2>
+        <p>
+            The problem came out of the Cold War. In 1955, T. E. Harris and F. S. Ross of the RAND Corporation studied the capacity of the Soviet and
+            Eastern European rail network, and in particular the cheapest way to cut it. Lester Ford and Delbert Fulkerson proved the max-flow min-cut
+            theorem in 1956 (Peter Elias, Amiel Feinstein and Claude Shannon found it independently the same year) and gave the augmenting path method.
+            Yefim Dinitz published his blocking-flow algorithm in 1970, Jack Edmonds and Richard Karp their breadth-first rule in 1972, and Andrew Goldberg
+            and Robert Tarjan push–relabel in 1988.
+        </p>
+    </section>
+</ArticleLayout>
+
+@code {
+    private static readonly IReadOnlyList<(string, string)> Sections =
+    [
+        ("problem", "The problem"),
+        ("model", "Formal model"),
+        ("hard", "Why this one is easy"),
+        ("structures", "Data structures"),
+        ("algorithms", "The algorithms"),
+        ("beyond", "Beyond this lab"),
+        ("history", "A little history"),
+    ];
+}

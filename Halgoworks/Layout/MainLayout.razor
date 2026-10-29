@@ -1,0 +1,32 @@
+@inherits LayoutComponentBase
+
+<header class="topbar">
+    <div class="topbar-inner">
+        <a class="brand" href="">
+            <svg viewBox="0 0 32 32" aria-hidden="true">
+                <rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="none" stroke="#2a3d5e" stroke-width="2" />
+                <path d="M7 23 L13 12 L19 18 L25 8" fill="none" stroke="#ffb23e" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                <circle cx="7" cy="23" r="2.7" fill="#eaf0f8" />
+                <circle cx="25" cy="8" r="2.7" fill="#eaf0f8" />
+            </svg>
+            <span>Halgoworks</span>
+        </a>
+        <nav class="nav" aria-label="Problems">
+            @foreach (var problem in Problems.All)
+            {
+                <NavLink href="@problem.Slug" ActiveClass="active">@problem.NavName</NavLink>
+            }
+        </nav>
+    </div>
+</header>
+
+<main>
+    @Body
+</main>
+
+<footer class="footer">
+    <div class="footer-inner">
+        <span>Halgoworks: optimization algorithms, narrated step by step.</span>
+        <span>Algorithms run in your browser in C# on Blazor WebAssembly. 3D views use three.js.</span>
+    </div>
+</footer>

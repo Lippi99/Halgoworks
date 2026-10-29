@@ -1,0 +1,18 @@
+<header class="lab-header">
+    <div>
+        <h1 class="lab-title" tabindex="-1">@Problem.Name</h1>
+        <p class="lab-lede">@Problem.Summary</p>
+    </div>
+    <dl class="lab-facts">
+        <dt>Complexity</dt>
+        <dd><span class="complexity @(Problem.Polynomial ? "easy" : null)">@Problem.Complexity</span></dd>
+        <dt>Used for</dt>
+        <dd>@string.Join(", ", Problem.Uses)</dd>
+        <dt>In this lab</dt>
+        <dd>@Problem.Algorithms</dd>
+    </dl>
+</header>
+
+@code {
+    [Parameter, EditorRequired] public ProblemInfo Problem { get; set; } = default!;
+}

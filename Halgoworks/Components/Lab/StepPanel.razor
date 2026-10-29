@@ -1,0 +1,54 @@
+<aside class="side" aria-label="What the algorithm is doing">
+    <div class="side-section narration" aria-live="polite">
+        <div class="step-meta">
+            <span class="step-phase">@Step.Phase</span>
+            <span class="num">Step @(Index + 1) of @Count</span>
+        </div>
+        <h2 class="step-title">@Step.Title</h2>
+        <p class="step-text">@Rich.Render(Step.Text)</p>
+    </div>
+
+    <div class="side-section">
+        <div class="side-label">
+            <strong>@Algorithm.Name</strong>
+            <span>@KindLabel, @Algorithm.Time</span>
+        </div>
+        <ol class="pseudo" aria-label="Pseudo-code">
+            @for (var i = 0; i < Algorithm.Code.Count; i++)
+            {
+                <li class="@(i == Step.Line ? "on" : null)" aria-current="@(i == Step.Line ? "step" : null)"><code>@Algorithm.Code[i]</code></li>
+            }
+        </ol>
+        <p class="algo-summary">@Algorithm.Summary</p>
+    </div>
+
+    @if (Step.Watches.Count > 0)
+    {
+        <div class="side-section">
+            <div class="side-label"><strong>Variables</strong></div>
+            <dl class="watch-list">
+                @foreach (var watch in Step.Watches)
+                {
+                    <div>
+                        <dt>@watch.Name</dt>
+                        <dd>@watch.Value</dd>
+                    </div>
+                }
+            </dl>
+        </div>
+    }
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public Step Step { get; set; } = default!;
+    [Parameter, EditorRequired] public AlgorithmInfo Algorithm { get; set; } = default!;
+    [Parameter] public int Index { get; set; }
+    [Parameter] public int Count { get; set; }
+
+    private string KindLabel => Algorithm.Kind switch
+    {
+        AlgorithmKind.Exact => "Exact",
+        AlgorithmKind.LocalSearch => "Local search",
+        _ => "Heuristic",
+    };
+}

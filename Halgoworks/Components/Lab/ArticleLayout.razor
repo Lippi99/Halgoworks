@@ -1,0 +1,40 @@
+@inject IJSRuntime JS
+
+<div class="article">
+    <nav class="toc" aria-label="On this page">
+        <div class="toc-title">On this page</div>
+        @foreach (var (id, title) in Sections)
+        {
+            <a href="@($"{Path}#{id}")" @onclick="() => Scroll(id)" @onclick:preventDefault>@title</a>
+        }
+    </nav>
+    <div class="prose">
+        @ChildContent
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<(string Id, string Title)> Sections { get; set; } = [];
+
+    /// <summary>Route of the page, so the links still work when opened in a new tab.</summary>
+    [Parameter, EditorRequired] public string Path { get; set; } = "";
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Bump to re-render the article, e.g. when a figure inside it depends on the current instance.</summary>
+    [Parameter] public int Version { get; set; }
+
+    private IJSObjectReference? _module;
+    private int? _renderedVersion;
+
+    private async Task Scroll(string id)
+    {
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/site.js");
+        await _module.InvokeVoidAsync("scrollToId", id);
+    }
+
+    // The article is mostly static; skip re-rendering it with every playback step.
+    protected override bool ShouldRender() => _renderedVersion != Version;
+
+    protected override void OnAfterRender(bool firstRender) => _renderedVersion = Version;
+}

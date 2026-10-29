@@ -1,0 +1,132 @@
+@using Halgoworks.Core.Knapsack
+
+<div class="scroll-x">
+    <svg class="viz" viewBox="0 0 @W @H" style="min-width: @(Palette.F(W * 0.78, "0"))px" role="img"
+         aria-label="Dynamic programming table: rows are items, columns are capacities">
+        <defs>
+            <marker id="kn-arrow-on" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0L10 5L0 10z" fill="@Palette.Signal" />
+            </marker>
+            <marker id="kn-arrow-off" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0L10 5L0 10z" fill="@Palette.Text3" />
+            </marker>
+        </defs>
+
+        <text x="@(HeadW - 12)" y="18" text-anchor="end" font-size="12" class="t-3">capacity</text>
+        <g>
+            @for (var c = 0; c <= Cap; c++)
+            {
+                <g><text x="@F(CX(c))" y="18" text-anchor="middle" font-size="12" class="@(c == FocusCol ? "t-signal" : "t-3") tabular"
+                      font-weight="@(c == FocusCol ? "700" : "400")">@c</text></g>
+            }
+        </g>
+
+        @for (var r = 0; r <= N; r++)
+        {
+            var row = r;
+            var focusRow = Step.Cell?.Row == r || Step.Batch.Any(b => b.Row == row && row > 0);
+            <g>
+                @if (focusRow)
+                {
+                    <rect x="0" y="@F(RY(r))" width="3" height="@(RH - 2)" fill="@Palette.Signal" rx="1.5" />
+                }
+                <text x="12" y="@F(RY(r) + 14)" font-size="13" class="@(focusRow ? "t-1" : "t-2")" font-weight="@(focusRow ? "600" : "400")">@(r == 0 ? "No items" : $"{Items[r - 1].Icon} {Items[r - 1].Name}")</text>
+                @if (r > 0)
+                {
+                    <g><text x="12" y="@F(RY(r) + 29)" font-size="11" class="t-3 tabular">weight @Items[r - 1].Weight, value @Items[r - 1].Value</text></g>
+                }
+            </g>
+        }
+
+        @for (var r = 0; r <= N; r++)
+        {
+            @for (var c = 0; c <= Cap; c++)
+            {
+                var v = Table[r][c];
+                if (v < 0)
+                {
+                    <rect x="@F(CX(c) - CW / 2.0 + 1)" y="@F(RY(r) + 1)" width="@(CW - 2)" height="@(RH - 4)" rx="3" fill="none" stroke="@Palette.Line" stroke-width="1" />
+                }
+                else
+                {
+                    var t = MaxValue <= 0 ? 0 : (double)v / MaxValue;
+                    <g>
+                        <rect x="@F(CX(c) - CW / 2.0 + 1)" y="@F(RY(r) + 1)" width="@(CW - 2)" height="@(RH - 4)" rx="3" fill="@Palette.RampAt(t)" />
+                        <text x="@F(CX(c))" y="@F(RY(r) + RH / 2.0)" text-anchor="middle" dominant-baseline="central" font-size="13"
+                              font-weight="500" fill="@Palette.InkOnRamp(t)" class="tabular">@v</text>
+                    </g>
+                }
+            }
+        }
+
+        @foreach (var b in Step.Batch)
+        {
+            <rect x="@F(CX(b.Col) - CW / 2.0 + 1)" y="@F(RY(b.Row) + 1)" width="@(CW - 2)" height="@(RH - 4)" rx="3" fill="none" stroke="@Palette.Signal" stroke-width="1.5" />
+        }
+
+        @if (Step.Path.Count > 0)
+        {
+            <polyline points="@string.Join(" ", Step.Path.Select(p => $"{F(CX(p.Col))},{F(RY(p.Row) + RH / 2.0 - 1)}"))" fill="none"
+                      stroke="@Palette.Signal" stroke-width="2" stroke-linejoin="round" opacity="0.9" />
+            @foreach (var p in Step.Path)
+            {
+                <rect x="@F(CX(p.Col) - CW / 2.0 + 1)" y="@F(RY(p.Row) + 1)" width="@(CW - 2)" height="@(RH - 4)" rx="3" fill="none" stroke="@Palette.Signal" stroke-width="2" />
+            }
+        }
+
+        @if (Step is { Cell: { } cell, SkipFrom: { } skip, TakeFrom: { } take })
+        {
+            var took = Step.Took == true;
+            <rect x="@F(CX(skip.Col) - CW / 2.0 + 1)" y="@F(RY(skip.Row) + 1)" width="@(CW - 2)" height="@(RH - 4)" rx="3" fill="none"
+                  stroke="@(took ? Palette.Text3 : Palette.Signal)" stroke-width="2" />
+            <rect x="@F(CX(take.Col) - CW / 2.0 + 1)" y="@F(RY(take.Row) + 1)" width="@(CW - 2)" height="@(RH - 4)" rx="3" fill="none"
+                  stroke="@(took ? Palette.Signal : Palette.Text3)" stroke-width="2" />
+            <path d="@SkipArrow(skip, cell)" fill="none" stroke="@(took ? Palette.Text3 : Palette.Signal)" stroke-width="1.8" marker-end="@(took ? "url(#kn-arrow-off)" : "url(#kn-arrow-on)")" />
+            @if (take.Col != cell.Col)
+            {
+                <path d="@TakeArrow(take, cell)" fill="none" stroke="@(took ? Palette.Signal : Palette.Text3)" stroke-width="1.8" marker-end="@(took ? "url(#kn-arrow-on)" : "url(#kn-arrow-off)")" />
+            }
+        }
+
+        @if (Step.Cell is { } focus)
+        {
+            <rect class="glow" x="@F(CX(focus.Col) - CW / 2.0)" y="@F(RY(focus.Row))" width="@CW" height="@(RH - 2)" rx="4" fill="none" stroke="@Palette.Signal" stroke-width="2.5" />
+        }
+    </svg>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public KnapsackInstance Instance { get; set; } = default!;
+    [Parameter, EditorRequired] public KnapsackStep Step { get; set; } = default!;
+    [Parameter] public int MaxValue { get; set; }
+
+    private const int CW = 40;
+    private const int RH = 38;
+    private const int HeadW = 176;
+    private const int Top = 30;
+
+    private IReadOnlyList<KnapsackItem> Items => Instance.Items;
+    private int N => Items.Count;
+    private int Cap => Instance.Capacity;
+    private int[][] Table => Step.Table!;
+    private int W => HeadW + (Cap + 1) * CW + 8;
+    private int H => Top + (N + 1) * RH + 6;
+    private int? FocusCol => Step.Cell?.Col;
+
+    private static double CX(int c) => HeadW + c * CW + CW / 2.0;
+
+    private static double RY(int r) => Top + r * RH;
+
+    private static string F(double v) => Palette.F(v, "0.#");
+
+    // Both arrows land on the top edge of the current cell: skip just right of center, take just left.
+    private static string SkipArrow(GridCell from, GridCell to) =>
+        $"M{F(CX(from.Col) + 7)} {F(RY(from.Row) + RH - 5)}V{F(RY(to.Row) + 3)}";
+
+    // An elbow that runs along the gap between the two rows, so it never crosses the numbers.
+    private static string TakeArrow(GridCell from, GridCell to)
+    {
+        var gap = RY(to.Row) - 1;
+        return $"M{F(CX(from.Col))} {F(RY(from.Row) + RH - 5)}V{F(gap)}H{F(CX(to.Col) - 7)}V{F(RY(to.Row) + 3)}";
+    }
+}

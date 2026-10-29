@@ -1,0 +1,75 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="scene3d">
+    <canvas @ref="_canvas" aria-label="@Label" role="img"></canvas>
+    @if (_failed)
+    {
+        <p class="scene-note">The 3D view needs WebGL, which isn't available in this browser. Switch back to 2D to keep following the algorithm.</p>
+    }
+    else
+    {
+        <p class="scene-hint">Drag to orbit. Click, then scroll to zoom.</p>
+    }
+</div>
+
+@code {
+    /// <summary>Which scene builder to use in scenes.js.</summary>
+    [Parameter, EditorRequired] public string Kind { get; set; } = "";
+
+    /// <summary>Builds the state sent to the scene. Called only when <see cref="Version"/> changes.</summary>
+    [Parameter] public Func<object?>? State { get; set; }
+
+    [Parameter] public int Version { get; set; }
+
+    [Parameter] public string Label { get; set; } = "3D view";
+
+    private ElementReference _canvas;
+    private IJSObjectReference? _module;
+    private readonly string _id = "scene-" + Guid.NewGuid().ToString("N")[..8];
+    private bool _mounted;
+    private bool _failed;
+    private int _sentVersion = int.MinValue;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/scenes.js");
+                _sentVersion = Version;
+                _mounted = await _module.InvokeAsync<bool>("mount", _id, _canvas, Kind, State?.Invoke());
+            }
+            catch (JSException)
+            {
+                _mounted = false;
+            }
+
+            if (!_mounted)
+            {
+                _failed = true;
+                StateHasChanged();
+            }
+
+            return;
+        }
+
+        if (!_mounted || _module is null || Version == _sentVersion) return;
+        _sentVersion = Version;
+        await _module.InvokeVoidAsync("update", _id, State?.Invoke());
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is null) return;
+        try
+        {
+            await _module.InvokeVoidAsync("unmount", _id);
+            await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+}

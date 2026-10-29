@@ -1,0 +1,22 @@
+@typeparam T
+
+<div class="seg" role="radiogroup" aria-label="@Label">
+    @foreach (var option in Options)
+    {
+        var on = EqualityComparer<T>.Default.Equals(option.Value, Value);
+        <button type="button" role="radio" aria-checked="@(on ? "true" : "false")" class="seg-btn @(on ? "on" : null)"
+                disabled="@option.Disabled" title="@option.Hint" @onclick="() => Pick(option.Value)">@option.Text</button>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<SegOption<T>> Options { get; set; } = [];
+    [Parameter] public T Value { get; set; } = default!;
+    [Parameter] public EventCallback<T> ValueChanged { get; set; }
+    [Parameter] public string Label { get; set; } = "";
+
+    private async Task Pick(T value)
+    {
+        if (!EqualityComparer<T>.Default.Equals(value, Value)) await ValueChanged.InvokeAsync(value);
+    }
+}
