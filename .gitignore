@@ -27,3 +27,6 @@ Thumbs.db
 
 # Node (only if tooling is added later)
 node_modules/
+
+# Cloudflare Wrangler's local cache (account ID, project name)
+.wrangler/
